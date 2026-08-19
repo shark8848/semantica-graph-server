@@ -1,0 +1,33 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "graph-engine"
+version = "0.1.0"
+description = "Semantica-backed graph engine exposing HTTP/gRPC/Celery/MCP/CLI interfaces"
+requires-python = ">=3.12"
+dependencies = [
+  # 核心依赖全部复用当前 venv 已装包，无新增外部依赖
+  "semantica==0.6.5",
+  "fastapi>=0.115",
+  "uvicorn[standard]>=0.30",
+  "pydantic>=2.0",
+  "grpcio>=1.81",
+  "protobuf>=5.29",
+  "celery>=5.3",
+  "typer>=0.12",
+]
+
+[project.scripts]
+graph-engine = "graph_engine.interfaces.cli:app"
+
+[tool.setuptools]
+package-dir = {"" = "."}
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["graph_engine*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

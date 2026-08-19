@@ -1,0 +1,34 @@
+syntax = "proto3";
+
+package graph.v1;
+
+// Semantica Graph Engine gRPC 契约（MVP）
+//
+// 所有 RPC 均使用统一 Envelope：trace_id 透传链路、err_code/err_msg 对齐 open-ikc
+// envelope（0 成功；2xxxxx 业务错误），data_json 承载业务数据 JSON。
+// 与 HTTP /api/v1/graph/* 语义一一对应。
+
+message Envelope {
+  string trace_id = 1;
+  string err_code = 2;
+  string err_msg = 3;
+  string data_json = 4;
+}
+
+service GraphService {
+  rpc CreateGraph(Envelope) returns (Envelope);
+  rpc GetGraph(Envelope) returns (Envelope);
+  rpc DeleteGraph(Envelope) returns (Envelope);
+  rpc ListGraphs(Envelope) returns (Envelope);
+  rpc BuildGraph(Envelope) returns (Envelope);
+  rpc MergeRecords(Envelope) returns (Envelope);
+  rpc DeprecateDoc(Envelope) returns (Envelope);
+  rpc Stat(Envelope) returns (Envelope);
+  rpc ListNodes(Envelope) returns (Envelope);
+  rpc ListEdges(Envelope) returns (Envelope);
+  rpc Neighbors(Envelope) returns (Envelope);
+  rpc Paths(Envelope) returns (Envelope);
+  rpc ExportGraph(Envelope) returns (Envelope);
+  rpc RunJob(Envelope) returns (Envelope);
+  rpc GetJob(Envelope) returns (Envelope);
+}
