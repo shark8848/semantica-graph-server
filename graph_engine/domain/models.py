@@ -70,6 +70,7 @@ class EntityRecord:
         return {
             "entityId": self.entity_id,
             "graphId": self.graph_id,
+            "docId": self.doc_id,
             "type": self.entity_type,
             "name": self.name,
             "normalizedName": self.normalized_name,
@@ -126,6 +127,7 @@ class RelationRecord:
         return {
             "relationId": self.relation_id,
             "graphId": self.graph_id,
+            "docId": self.doc_id,
             "type": self.relation_type,
             "sourceEntityId": self.source_entity_id,
             "targetEntityId": self.target_entity_id,
