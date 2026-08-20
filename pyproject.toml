@@ -22,6 +22,12 @@ dependencies = [
 [project.scripts]
 graph-engine = "graph_engine.interfaces.cli:app"
 
+[project.optional-dependencies]
+test = [
+  # starlette 1.6+ 的 TestClient 已弃用 httpx，需用 httpx2
+  "httpx2>=2.12",
+]
+
 [tool.setuptools]
 package-dir = {"" = "."}
 

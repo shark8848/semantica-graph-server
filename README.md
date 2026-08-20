@@ -1,4 +1,3 @@
-<<<<<<< HEAD
 # Semantica Graph Engine
 
 把已安装的 `semantica`（0.6.5）封装为可对外完整服务的图引擎，统一提供
@@ -45,10 +44,7 @@ graph-engine graph export graph_xxx
 ## 测试
 
 ```bash
+# 首次安装测试依赖（httpx2）
+.venv/bin/pip install -e '.[test]' --no-build-isolation
 .venv/bin/python -m pytest tests -q
 ```
-# semantica-graph-server
-=======
-# semantica-graph-server
-
->>>>>>> 093f06545c526fc24687af6aea6fd5c65f1c2f6c
