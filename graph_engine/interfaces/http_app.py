@@ -87,7 +87,8 @@ def create_app(service: Any | None = None) -> FastAPI:
             job_task = "build_text" if payload.get("text") else "build"
 
             def _submit_and_dispatch() -> dict[str, Any]:
-                """登记 pending job；celery 启用时再投递，未启用仅登记。"""
+                """校验图谱存在后登记 pending job；celery 启用时再投递，未启用仅登记。"""
+                svc.get_graph(graph_id)  # async 提交前先校验图谱存在（缺失抛 200404）
                 job = svc.submit_job(job_task, graph_id, payload)
                 from .celery_app import dispatch_job
 
