@@ -152,6 +152,7 @@ def build(
     text: str = typer.Option("", "--text"),
     doc_id: str = typer.Option("", "--doc-id"),
     title: str = typer.Option("", "--title"),
+    llm: bool = typer.Option(False, "--llm", help="文本建图时开启 LLM 实体增强（需配置 GRAPH_ENGINE_LLM_PROVIDER）"),
     records_json: str = typer.Option("", "--records", help='{"entities":[...],"relations":[...]} JSON'),
 ) -> None:
     """建图：--text 走规则抽取；--records 走显式记录。"""
@@ -165,7 +166,7 @@ def build(
                 doc_id=doc_id,
             )
         else:
-            result = _svc().build_from_text(graph_id, text=text, doc_id=doc_id, title=title)
+            result = _svc().build_from_text(graph_id, text=text, doc_id=doc_id, title=title, llm=llm)
         _emit(result)
     except Exception as exc:
         _exit_for(exc)
@@ -257,9 +258,22 @@ def paths(
 
 @app.command()
 def export(graph_id: str = typer.Argument(...), format: str = typer.Option("jsonl", "--format")) -> None:
-    """导出图谱（jsonl/json）。"""
+    """导出图谱（jsonl/json；RDF：turtle/nt/nq/rdfxml）。"""
     try:
         _emit(_svc().export(graph_id, format=format))
+    except Exception as exc:
+        _exit_for(exc)
+
+
+@app.command()
+def sparql(
+    graph_id: str = typer.Argument(...),
+    query: str = typer.Option("", "--query", help="SPARQL 查询语句（SELECT/ASK/CONSTRUCT/DESCRIBE）"),
+    limit: int = typer.Option(0, "--limit", help="SELECT 结果截断行数（0 不截断）"),
+) -> None:
+    """SPARQL 查询当前图（RDF 视图，需 pyoxigraph）。"""
+    try:
+        _emit(_svc().sparql(graph_id, query=query, limit=limit))
     except Exception as exc:
         _exit_for(exc)
 

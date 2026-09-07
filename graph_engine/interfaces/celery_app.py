@@ -51,12 +51,13 @@ def build_task(
     text: str = "",
     doc_id: str = "",
     title: str = "",
+    llm: bool = False,
     job_id: str = "",
 ) -> dict[str, Any]:
-    """建图任务：--text 走规则抽取；否则走显式记录。"""
+    """建图任务：--text 走规则抽取（可开 LLM 增强）；否则走显式记录。"""
     svc = get_service()
     if text:
-        result = svc.build_from_text(graph_id, text=text, doc_id=doc_id, title=title)
+        result = svc.build_from_text(graph_id, text=text, doc_id=doc_id, title=title, llm=llm)
     else:
         result = svc.build_from_records(
             graph_id, entities=entities or [], relations=relations or [], doc_id=doc_id
@@ -98,6 +99,13 @@ def export_task(graph_id: str, format: str = "jsonl", job_id: str = "") -> dict[
     return result
 
 
+def _flag(value: Any) -> bool:
+    """宽松布尔解析（payload 可能是 JSON bool 或字符串）。"""
+    if isinstance(value, bool):
+        return value
+    return str(value or "").strip().lower() in ("1", "true", "yes")
+
+
 def dispatch_job(
     job_id: str,
     graph_id: str,
@@ -106,8 +114,8 @@ def dispatch_job(
 ) -> bool:
     """把已登记 job 投递到 Celery broker；成功返回 True，否则返回 False。
 
-    task 映射：build/build_text → build_task（text 建图时把 text/title 传入
-    build_task 的 text/title 参数）；merge → merge_task；
+    task 映射：build/build_text → build_task（text 建图时把 text/title/llm 传入
+    build_task 参数）；merge → merge_task；
     deprecate_doc → deprecate_doc_task；export → export_task。
     未启用 celery_enabled 或 task 未知时返回 False（仅告警，不抛异常），
     且未启用时绝不连接 broker（本地无 Redis 也不报错/挂起）。
@@ -120,6 +128,7 @@ def dispatch_job(
                 "text": str(payload.get("text") or ""),
                 "doc_id": str(payload.get("docId") or ""),
                 "title": str(payload.get("title") or ""),
+                "llm": _flag(payload.get("llm")),
             }
         else:
             task_kwargs = {

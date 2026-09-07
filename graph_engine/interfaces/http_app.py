@@ -16,6 +16,15 @@ def _trace(request: Request) -> str:
     return request.headers.get(TRACE_ID_HEADER) or new_trace_id()
 
 
+def _flag(value: Any) -> bool | None:
+    """宽松布尔解析：None 保持 None（走服务端 env 缺省），1/true/yes 视为 True。"""
+    if value is None:
+        return None
+    if isinstance(value, bool):
+        return value
+    return str(value).strip().lower() in ("1", "true", "yes")
+
+
 def _handle(trace_id: str, fn) -> JSONResponse:
     try:
         return JSONResponse(ok(trace_id, fn()))
@@ -104,6 +113,7 @@ def create_app(service: Any | None = None) -> FastAPI:
                     text=str(payload.get("text") or ""),
                     doc_id=str(payload.get("docId") or ""),
                     title=str(payload.get("title") or ""),
+                    llm=_flag(payload.get("llm")),
                 )
                 if payload.get("text")
                 else svc.build_from_records(
@@ -202,6 +212,18 @@ def create_app(service: Any | None = None) -> FastAPI:
     def graph_export(request: Request, graph_id: str, format: str = Query(default="jsonl")) -> JSONResponse:
         tid = _trace(request)
         return _handle(tid, lambda: svc.export(graph_id, format=format))
+
+    @app.post("/api/v1/graph/graphs/{graph_id}/sparql")
+    def graph_sparql(request: Request, graph_id: str, payload: dict[str, Any]) -> JSONResponse:
+        tid = _trace(request)
+        return _handle(
+            tid,
+            lambda: svc.sparql(
+                graph_id,
+                query=str(payload.get("query") or ""),
+                limit=int(payload.get("limit") or 0),
+            ),
+        )
 
     # ---------- jobs ----------
 

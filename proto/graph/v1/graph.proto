@@ -29,6 +29,7 @@ service GraphService {
   rpc Neighbors(Envelope) returns (Envelope);
   rpc Paths(Envelope) returns (Envelope);
   rpc ExportGraph(Envelope) returns (Envelope);
+  rpc Sparql(Envelope) returns (Envelope);
   rpc RunJob(Envelope) returns (Envelope);
   rpc GetJob(Envelope) returns (Envelope);
 }

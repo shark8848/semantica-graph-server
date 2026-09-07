@@ -198,9 +198,10 @@ def test_mcp_retrieval_tools_and_degrade(monkeypatch, tmp_path):
     gid = _create(svc)
 
     names = {t["name"] for t in TOOLS}
-    assert len(TOOLS) == 17
+    assert len(TOOLS) == 18
     assert "graph_search" in names
     assert "graph_index_status" in names
+    assert "graph_sparql" in names
 
     handlers = _tool_handlers(svc)
     listed = _handle_request({"jsonrpc": "2.0", "id": 1, "method": "tools/list"}, handlers)

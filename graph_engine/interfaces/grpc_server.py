@@ -64,6 +64,15 @@ def _deser(data: bytes) -> Any:
 METHOD_HANDLERS: dict[str, Callable[[Any, dict[str, Any]], dict[str, Any]]] = {}
 
 
+def _flag(value: Any) -> bool | None:
+    """宽松布尔解析：None 保持 None（走服务端 env 缺省）。"""
+    if value is None:
+        return None
+    if isinstance(value, bool):
+        return value
+    return str(value).strip().lower() in ("1", "true", "yes")
+
+
 def _register(method: str) -> Callable:
     def decorator(fn: Callable) -> Callable:
         METHOD_HANDLERS[method] = fn
@@ -107,6 +116,7 @@ def _build_graph(service, p: dict[str, Any]) -> dict[str, Any]:
             text=str(p.get("text") or ""),
             doc_id=str(p.get("docId") or ""),
             title=str(p.get("title") or ""),
+            llm=_flag(p.get("llm")),
         )
     return service.build_from_records(
         str(p.get("graphId") or ""),
@@ -177,6 +187,15 @@ def _paths(service, p: dict[str, Any]) -> dict[str, Any]:
 @_register("ExportGraph")
 def _export_graph(service, p: dict[str, Any]) -> dict[str, Any]:
     return service.export(str(p.get("graphId") or ""), format=str(p.get("format") or "jsonl"))
+
+
+@_register("Sparql")
+def _sparql(service, p: dict[str, Any]) -> dict[str, Any]:
+    return service.sparql(
+        str(p.get("graphId") or ""),
+        query=str(p.get("query") or ""),
+        limit=int(p.get("limit") or 0),
+    )
 
 
 @_register("RunJob")

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 import re
 import uuid
 from typing import Any
@@ -30,6 +31,14 @@ def _with_doc_id(record: Any, doc_id: str) -> Any:
     if doc_id and not any(str(item.get("docId") or "") == doc_id for item in evidence):
         evidence.append({"docId": doc_id})
     return replace(record, doc_id=doc_id, evidence=evidence)
+
+
+def _env_bool(key: str, default: bool = False) -> bool:
+    """读布尔环境变量：1/true/yes（不区分大小写）视为 True。"""
+    value = os.environ.get(key)
+    if value is None:
+        return default
+    return value.strip().lower() in ("1", "true", "yes")
 
 
 def _paginate(records: list[Any], page: int, page_size: int) -> tuple[int, list[Any]]:
@@ -167,11 +176,15 @@ class GraphEngineService:
         text: str,
         doc_id: str = "",
         title: str = "",
+        llm: bool | None = None,
     ) -> dict[str, Any]:
         """文本建图（MVP 规则占位抽取）：文档标题作为 concept 实体 + 「引号词」候选实体。
 
-        后续可替换为 semantica.semantic_extract（NER/RelationExtractor/LLM 抽取）。
+        ``llm`` 开启时对候选实体做 semantica LLMExtraction 增强（provider 未配置/
+        不可用时确定降级，见 adapters.llm）；缺省读 ``GRAPH_ENGINE_LLM_ENHANCE``。
         """
+        if llm is None:
+            llm = _env_bool("GRAPH_ENGINE_LLM_ENHANCE", False)
         meta = self._require_graph(graph_id_value)
         schema = dict(meta.schema)
         entity_types = [e.get("type", "") for e in (schema.get("entityTypes") or []) if isinstance(e, dict)]
@@ -190,12 +203,19 @@ class GraphEngineService:
                 seen.add(key)
                 entities.append({"name": candidate, "type": default_type, "docId": doc_id})
 
-        return self.build_from_records(
+        llm_meta: dict[str, Any] | None = None
+        if llm:
+            entities, llm_meta = adapters.enhance_text_entities(text or "", entities)
+
+        result = self.build_from_records(
             graph_id_value,
             entities=entities,
             relations=[],
             doc_id=doc_id,
         )
+        if llm_meta:
+            result["llm"] = llm_meta
+        return result
 
     def merge_records(
         self,
@@ -372,7 +392,58 @@ class GraphEngineService:
                                        "relations": [r for r in records if r["kind"] == "relation"]},
                                       ensure_ascii=False),
             }
-        raise InvalidParamsError("导出格式暂不支持", field="format", reason=f"支持 jsonl/json，当前：{fmt}")
+        if fmt == "ttl":
+            fmt = "turtle"
+        if fmt in ("turtle", "nt", "nq", "rdfxml"):
+            if not adapters.rdf_available():
+                raise InvalidParamsError(
+                    "RDF 导出暂不可用",
+                    field="format",
+                    reason="缺少 pyoxigraph / semantica oxigraph store",
+                )
+            entities = self.store.list_entities(graph_id_value)
+            relations = self.store.list_relations(graph_id_value)
+            content = adapters.export_rdf(graph_id_value, entities, relations, fmt)
+            return {
+                "graphId": graph_id_value,
+                "format": fmt,
+                "total": len(entities) + len(relations),
+                "content": content,
+            }
+        raise InvalidParamsError(
+            "导出格式暂不支持",
+            field="format",
+            reason=f"支持 jsonl/json/turtle/nt/nq/rdfxml，当前：{fmt}",
+        )
+
+    # ---------- RDF/SPARQL 视图（OxigraphStore，只读补强） ----------
+
+    def sparql(self, graph_id_value: str, *, query: str = "", limit: int = 0) -> dict[str, Any]:
+        """SPARQL 查询当前图（活动记录实时构建内存 Oxigraph 视图）。
+
+        pyoxigraph / semantica oxigraph store 不可用时抛 200001（字段 query）；
+        SPARQL 语法/执行错误同样收敛为 200001，便于调用方按字段纠错。
+        """
+        self._require_graph(graph_id_value)
+        q = str(query or "").strip()
+        if not q:
+            raise InvalidParamsError("SPARQL 查询为空", field="query")
+        if not adapters.rdf_available():
+            raise InvalidParamsError(
+                "RDF/SPARQL 视图暂不可用",
+                field="query",
+                reason="缺少 pyoxigraph / semantica oxigraph store",
+            )
+        entities = self.store.list_entities(graph_id_value)
+        relations = self.store.list_relations(graph_id_value)
+        try:
+            result = adapters.run_sparql(graph_id_value, entities, relations, q)
+        except Exception as exc:
+            raise InvalidParamsError("SPARQL 执行失败", field="query", reason=str(exc)) from exc
+        if limit and int(limit) > 0:
+            result = dict(result)
+            result["bindings"] = list(result.get("bindings", []))[: int(limit)]
+        return {"graphId": graph_id_value, "query": q, **result}
 
     # ---------- 语义检索（骨架：真实语义链待依赖修复后激活） ----------
 
