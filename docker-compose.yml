@@ -1,0 +1,53 @@
+# Semantica Graph Engine Docker 栈：单镜像（图引擎 + HAProxy 代理层同容器）
+#
+# 使用：
+#   1) bash scripts/build_docker.sh        # 构建镜像
+#   2) docker compose up -d                # 启动
+#   3) curl -s http://127.0.0.1:18180/health
+#   4) gRPC 客户端直连 127.0.0.1:18151（HAProxy TCP 透传）
+#   5) HAProxy stats: http://127.0.0.1:8406/（HAPROXY_STATS_USER / HAPROXY_STATS_PASSWORD）
+#
+# 拓扑：宿主机 -> HAProxy(:8080 HTTP / :50051 gRPC / :8404 stats)
+#              -> graph-engine(127.0.0.1:18010 / 127.0.0.1:50051，仅回环，不对外)
+# 升级旧镜像：先 bash scripts/build_docker.sh，再 docker compose up -d --build（避免复用旧 tag 镜像）
+# 生产必改：HAPROXY_STATS_PASSWORD；生产建议 GRAPH_ENGINE_CELERY_ENABLED=1 并接入真实 Redis
+
+name: graph-engine
+
+services:
+  engine:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: graph-engine:0.1.0
+    restart: unless-stopped
+    environment:
+      # 引擎
+      GRAPH_ENGINE_DB_PATH: "${GRAPH_ENGINE_DB_PATH:-data/engine.db}"
+      GRAPH_ENGINE_SEMANTICA: "${GRAPH_ENGINE_SEMANTICA:-1}"
+      GRAPH_ENGINE_LOG_LEVEL: "${GRAPH_ENGINE_LOG_LEVEL:-INFO}"
+      # Celery worker（容器内默认关闭；启用需提供可用 broker/backend，如真实 Redis）
+      GRAPH_ENGINE_CELERY_ENABLED: "${GRAPH_ENGINE_CELERY_ENABLED:-0}"
+      GRAPH_ENGINE_CELERY_BROKER: "${GRAPH_ENGINE_CELERY_BROKER:-redis://localhost:6379/0}"
+      GRAPH_ENGINE_CELERY_BACKEND: "${GRAPH_ENGINE_CELERY_BACKEND:-redis://localhost:6379/0}"
+      # HAProxy stats 登录账号（默认 admin / change-me，生产必改）
+      HAPROXY_STATS_USER: "${HAPROXY_STATS_USER:-admin}"
+      HAPROXY_STATS_PASSWORD: "${HAPROXY_STATS_PASSWORD:-change-me}"
+    ports:
+      - "${HAPROXY_HTTP_PORT:-18180}:8080"
+      - "${HAPROXY_GRPC_PORT:-18151}:50051"
+      - "${HAPROXY_STATS_PORT:-8406}:8404"
+    volumes:
+      - engine_data:/app/data
+      - engine_logs:/app/logs
+    healthcheck:
+      # 经 HAProxy 探测（端到端：HAProxy -> 引擎 127.0.0.1:18010）
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/health', timeout=3)"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 20s
+
+volumes:
+  engine_data:
+  engine_logs:

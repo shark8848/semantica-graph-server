@@ -1,0 +1,11 @@
+# 引擎运行时依赖（与 pyproject.toml [project].dependencies 保持同步）。
+# 构建镜像时单独安装该层：依赖只随本文件变更而重新下载，
+# 代码改动不会重复拉取 torch 等超大依赖（见 Dockerfile builder 阶段）。
+semantica==0.6.5
+fastapi>=0.115
+uvicorn[standard]>=0.30
+pydantic>=2.0
+grpcio>=1.81
+protobuf>=5.29
+celery>=5.3
+typer>=0.12

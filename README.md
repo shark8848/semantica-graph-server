@@ -48,3 +48,9 @@ graph-engine graph export graph_xxx
 .venv/bin/pip install -e '.[test]' --no-build-isolation
 .venv/bin/python -m pytest tests -q
 ```
+
+## Docker 部署（单镜像 + HAProxy 反向代理）
+
+- 构建统一镜像（图引擎 + HAProxy 代理层同容器）：`bash scripts/build_docker.sh`
+- 启动：`docker compose up -d`（HAProxy 对外入口 HTTP `18180` / gRPC `18151` / stats `8406`）
+- 详细说明：`docs/Docker部署与HAProxy.md`；冒烟验证：`bash scripts/docker_smoke.sh`
