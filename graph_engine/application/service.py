@@ -8,6 +8,7 @@ import uuid
 from typing import Any
 
 from .. import adapters
+from ..adapters.retrieval import RetrievalAdapter
 from ..domain.ids import entity_id, graph_id, normalize_name, relation_id
 from ..domain.models import EntityRecord, GraphMeta, RelationRecord
 from ..domain.schema import validate_entity_type, validate_graph_schema, validate_relation_type
@@ -40,9 +41,22 @@ def _paginate(records: list[Any], page: int, page_size: int) -> tuple[int, list[
 class GraphEngineService:
     """图引擎应用服务。构造时注入存储；所有用例返回普通 dict（协议层负责序列化）。"""
 
-    def __init__(self, store: SqliteGraphStore, *, semantica_enabled: bool = True) -> None:
+    def __init__(
+        self,
+        store: SqliteGraphStore,
+        *,
+        semantica_enabled: bool = True,
+        retrieval: RetrievalAdapter | None = None,
+    ) -> None:
+        """构造服务；retrieval 为语义检索适配器（默认 None，首次检索时惰性构造）。"""
         self.store = store
         self.semantica_enabled = semantica_enabled
+        self._retrieval = retrieval
+
+    def _retrieval_adapter(self) -> RetrievalAdapter:
+        if self._retrieval is None:
+            self._retrieval = RetrievalAdapter()
+        return self._retrieval
 
     # ---------- graph CRUD ----------
 
@@ -359,6 +373,27 @@ class GraphEngineService:
                                       ensure_ascii=False),
             }
         raise InvalidParamsError("导出格式暂不支持", field="format", reason=f"支持 jsonl/json，当前：{fmt}")
+
+    # ---------- 语义检索（骨架：真实语义链待依赖修复后激活） ----------
+
+    def semantic_search(
+        self, graph_id_value: str, query: str = "", top_k: int = 10
+    ) -> dict[str, Any]:
+        """语义检索：自然语言查询文本 → 相关实体/关系记录。
+
+        先校验图谱存在（缺失抛 NotFoundError）；semantica 检索链不可用或检索
+        后端未配置时返回确定降级结果（semantica:false、hits:[]），不抛错。
+        """
+        self._require_graph(graph_id_value)
+        q = str(query or "")
+        k = min(max(int(top_k), 1), 200)
+        result = self._retrieval_adapter().search(graph_id_value, q, k)
+        return {"graphId": graph_id_value, "query": q, "topK": k, **result}
+
+    def index_status(self, graph_id_value: str) -> dict[str, Any]:
+        """语义检索/向量索引可用状态（供运维与调试；降级不抛错）。"""
+        self._require_graph(graph_id_value)
+        return {"graphId": graph_id_value, **self._retrieval_adapter().status()}
 
     # ---------- jobs（异步任务登记与执行） ----------
 

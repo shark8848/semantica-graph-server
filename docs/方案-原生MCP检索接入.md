@@ -1,6 +1,13 @@
 # Semantica Graph Engine — 原生 MCP/检索能力接入（调研与方案）
 
 > 状态：研究/方案草稿 v1（2026-09-07），**仅只读调研产出，未实施、未改任何代码/依赖**。
+> 落地更新（2026-09-07 同日）：**阶段 2-3 的代码与单测骨架已先行落地**——新增 `graph_engine/adapters/retrieval.py`
+> （检索链守卫式探测 `retrieval_available()` + 可注入 backend 契约 + `record_to_doc` 向量条目结构），
+> `service.py` 新增 `semantic_search`/`index_status`，MCP 工具 **15→17**（+`graph_search`/`graph_index_status`，
+> 已注册 TOOLS 与 handler），新增 `tests/test_retrieval.py`（6 用例，全量回归 20 通过）。
+> **真实语义链（vector_store/context/embeddings）仍待阶段 1 pinecone 依赖修复后激活**：当前对外表现为
+> 确定性降级（`semantica:false`/`hits:[]`），不声称真实语义检索已可用；索引/迁移动作（index_graph/drop_doc）
+> 与 HTTP/gRPC/CLI 端点均未实施。看板条目状态不受本骨架影响。
 > 范围：把 semantica 0.6.5 的「原生 MCP + 检索（context/vector_store/embeddings）」能力接入本引擎的方案设计；
 > 前提：看板条目「semantica 原生 MCP/检索能力接入（pinecone 依赖修复后）」当前为 **P2 未开始**，本方案结论是该条目应**保持未开始**，直至有网环境完成 pinecone 依赖修复。
 > 调研方式：只读浏览 `.venv` 内 semantica 0.6.5 源码 + `.venv/bin/python -c/import` 实测复现（不触发网络、不安装/卸载包、不落盘修改 venv）。
@@ -9,7 +16,7 @@
 
 ### 1.1 引擎侧现状（MCP 面最小实现）
 - `graph_engine/interfaces/mcp_server.py` docstring 明确：「与 semantica 自带 mcp_server 同思路，但只依赖引擎 application 层，**避开当前 venv 中损坏的 semantica.context/vector_store 导入链**」。
-- 对外 stdio JSON-RPC，15 个 `graph_*` 工具：`graph_create / graph_list / graph_get / graph_delete / graph_stat / graph_build / graph_merge / graph_deprecate_doc / graph_nodes / graph_edges / graph_neighbors / graph_paths / graph_export / graph_job_run / graph_job_get`。
+- 对外 stdio JSON-RPC，15 个 `graph_*` 工具（**2026-09-07 骨架落地后新增 `graph_search`/`graph_index_status`，共 17 个**，见 §5 阶段 3）：`graph_create / graph_list / graph_get / graph_delete / graph_stat / graph_build / graph_merge / graph_deprecate_doc / graph_nodes / graph_edges / graph_neighbors / graph_paths / graph_export / graph_job_run / graph_job_get`。
 - 能力特征：CRUD/建图/合并/废弃/结构化查询/任务，全部落在 `graph_engine/application/service.py`；查询是结构化过滤（entityType/name）与图遍历，**无向量召回、无语义相似检索**。
 - 文本建图 `build_from_text` 是规则占位（标题 + 引号候选词），SQLite 只存 `graphs/entities/relations/jobs` 四类表，**不保留文档原文/chunk**。
 - 适配层 `graph_engine/adapters/semantica.py` 只守卫式 import `semantica` 与 `semantica.kg`（GraphBuilder/Analyzer），刻意不触碰 `semantica.context/vector_store`。
@@ -156,6 +163,12 @@ ContextGraph(advanced_analytics=True) OK  # 可实例化
 - 风险：无网环境做不了；semantica 旧名 extra 会再次引入桩包（§3.3 提醒）。
 
 ### 阶段 2：adapter 层暴露原生检索能力（离线可开发，冒烟需网络/模型）
+
+> **落地（2026-09-07，仅骨架）**：`graph_engine/adapters/retrieval.py` 已交付——守卫式探测
+> `retrieval_available()`（捕获一切 Exception，进程内缓存；真实导入失败路径开销大，仅探测一次）、
+> 可注入 `RetrievalBackend` 契约（upsert/query/delete，按 graphId 命名空间隔离）与向量条目结构
+> `record_to_doc`（id 锚定稳定 ID，metadata 携带 kind/type/docId/confidence/evidence 对齐 open-ikc 语义）。
+> **未实施**：`index_graph`/`drop_doc` 等真实索引/废弃同步动作、faiss/embeddings 接线，留待阶段 1 依赖修复后启用。
 - 目标：把 semantica 检索能力收口到引擎 adapter，保持「损坏/缺失则降级」的既有风格。
 - 建议改动：
   - 新建 `graph_engine/adapters/retrieval.py`（建议）：守卫式 import `semantica.embeddings.TextEmbedder` / `semantica.vector_store.VectorStore`；提供 `index_graph(graph_id)`（遍历 SQLite records→embed→upsert）、`semantic_search(graph_id, query, top_k)`、`drop_doc(graph_id, doc_id)`（随 `deprecate_doc` 同步删向量/标记失效）；向量 id 锚定现有稳定 ID（`entity_id/relation_id`，见 `graph_engine/domain/ids.py`），metadata 携带 `docId/type/confidence` 以对齐 open-ikc 语义。
@@ -165,6 +178,11 @@ ContextGraph(advanced_analytics=True) OK  # 可实例化
 - 风险/开放问题：embedding 模型与维度固定策略；图内无原文，若要做文本片段级检索需先解决「原文/chunk 留存」（引擎当前不存原文——见 §6）。
 
 ### 阶段 3：MCP tools 扩展（检索能力对外）
+
+> **落地（2026-09-07，仅骨架）**：`graph_search`/`graph_index_status` 已按现有 lambda 风格注册到
+> MCP `TOOLS`/`_tool_handlers`（15→17），接到 `service.semantic_search`/`index_status`；
+> 检索链不可用或后端未配置时确定性降级（`semantica:false`/`hits:[]`），不抛错。
+> **未实施**：真实向量召回（依赖阶段 1 后注入 backend）；HTTP/gRPC/CLI 检索端点（后续单独排期）。
 - 目标：在现有 15 个工具基础上扩展语义检索，命名/信封沿用 `graph_*`。
 - 建议改动：
   - `graph_engine/interfaces/mcp_server.py`：新增工具（建议名与语义）——
@@ -196,5 +214,10 @@ ContextGraph(advanced_analytics=True) OK  # 可实例化
 ## 7. 结论
 - **被依赖修复阻塞（不能先动）**：阶段 1 pinecone 修复必须先行；在此之前 semantica.context/vector_store 无法 import，任何「接入」都无法落地，看板 P2 条目**保持未开始**。
 - **可先行（无需依赖修复）**：本方案已交付的差距盘点与阶段规划；引擎现有测试/能力面保持不回归；检索 adapter 的接口设计、测试骨架、文档与 TSV 流程可先起草（本任务未做任何改动）。
+- **已先行（2026-09-07）**：阶段 2-3 骨架落地——`adapters/retrieval.py`、`service.semantic_search/index_status`、
+  MCP `graph_search`/`graph_index_status`（15→17）与 `tests/test_retrieval.py`（全量 20 用例通过）；
+  真实向量索引与语义召回仍以阶段 1 依赖修复为前提，当前对外为确定性降级，不做「已接入」声明。
 - **可并行（看板其他条目）**：「镜像体积精简评估（P2）」「MCP/CLI 镜像内冒烟脚本（P2）」与检索接入存在交集，可在阶段 1 后并行推进。
-- **本任务边界**：仅产出本调研/方案文档；未改动任何代码/依赖、未执行 git 操作、未安装/卸载 python 包、未做「已接入」声明。下一步建议：在**有网环境**执行 §3.3 依赖修复并回填验证结果，再按阶段 2→4 排期。
+- **本任务边界**：调研任务仅产出本方案文档（未改代码/依赖、未执行 git 操作、未安装/卸载 python 包、未做「已接入」声明）；
+  同日另以独立骨架任务先行落地阶段 2-3 代码与单测（见文首「落地更新」与 §5 各阶段标注，改动仅限 5 个文件，未触碰依赖/venv/看板）。
+  下一步建议：在**有网环境**执行 §3.3 依赖修复并回填验证结果，再按阶段 2→4 排期。

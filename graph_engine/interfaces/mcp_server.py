@@ -51,6 +51,8 @@ TOOLS: list[dict[str, Any]] = [
     {"name": "graph_neighbors", "description": "实体邻域（depth 1/2）", "inputSchema": {"type": "object", "properties": {"graphId": {"type": "string"}, "entityId": {"type": "string"}, "depth": {"type": "integer"}}, "required": ["graphId", "entityId"]}},
     {"name": "graph_paths", "description": "最短路径", "inputSchema": {"type": "object", "properties": {"graphId": {"type": "string"}, "sourceEntityId": {"type": "string"}, "targetEntityId": {"type": "string"}, "maxDepth": {"type": "integer"}}, "required": ["graphId", "sourceEntityId", "targetEntityId"]}},
     {"name": "graph_export", "description": "导出图谱（jsonl/json）", "inputSchema": {"type": "object", "properties": {"graphId": {"type": "string"}, "format": {"type": "string"}}, "required": ["graphId"]}},
+    {"name": "graph_search", "description": "语义检索：自然语言查询 → 召回相关实体/关系记录（检索链不可用时降级返回空命中）", "inputSchema": {"type": "object", "properties": {"graphId": {"type": "string"}, "query": {"type": "string"}, "topK": {"type": "integer"}}, "required": ["graphId", "query"]}},
+    {"name": "graph_index_status", "description": "语义检索/向量索引可用状态", "inputSchema": {"type": "object", "properties": {"graphId": {"type": "string"}}, "required": ["graphId"]}},
     {"name": "graph_job_run", "description": "同步执行任务", "inputSchema": {"type": "object", "properties": {"jobId": {"type": "string"}}, "required": ["jobId"]}},
     {"name": "graph_job_get", "description": "查询任务状态", "inputSchema": {"type": "object", "properties": {"jobId": {"type": "string"}}, "required": ["jobId"]}},
 ]
@@ -82,6 +84,8 @@ def _tool_handlers(service: Any) -> dict[str, Callable[..., dict[str, Any]]]:
         "graph_neighbors": lambda p: service.neighbors(str(p.get("graphId") or ""), entity_id_value=str(p.get("entityId") or ""), depth=int(p.get("depth") or 1)),
         "graph_paths": lambda p: service.paths(str(p.get("graphId") or ""), source_entity_id=str(p.get("sourceEntityId") or ""), target_entity_id=str(p.get("targetEntityId") or ""), max_depth=int(p.get("maxDepth") or 5)),
         "graph_export": lambda p: service.export(str(p.get("graphId") or ""), format=str(p.get("format") or "jsonl")),
+        "graph_search": lambda p: service.semantic_search(str(p.get("graphId") or ""), query=str(p.get("query") or ""), top_k=int(p.get("topK") or 10)),
+        "graph_index_status": lambda p: service.index_status(str(p.get("graphId") or "")),
         "graph_job_run": lambda p: service.run_job(str(p.get("jobId") or "")),
         "graph_job_get": lambda p: service.get_job(str(p.get("jobId") or "")),
     }
