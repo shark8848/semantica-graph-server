@@ -11,6 +11,7 @@ export GRAPH_ENGINE_GRPC_PORT="${GRAPH_ENGINE_GRPC_PORT:-50051}"
 export HAPROXY_STATS_USER="${HAPROXY_STATS_USER:-admin}"
 export HAPROXY_STATS_PASSWORD="${HAPROXY_STATS_PASSWORD:-change-me}"
 GRAPH_ENGINE_CELERY_ENABLED="${GRAPH_ENGINE_CELERY_ENABLED:-0}"
+GRAPH_ENGINE_CELERY_BROKER="${GRAPH_ENGINE_CELERY_BROKER:-redis://localhost:6379/0}"
 
 # 引擎服务只监听回环，避免绕过 HAProxy 直连
 export GRAPH_ENGINE_HTTP_HOST=127.0.0.1
@@ -33,10 +34,41 @@ HTTP_PID=$!
 graph-engine serve grpc &
 GRPC_PID=$!
 
+# Celery worker（默认关闭，GRAPH_ENGINE_CELERY_ENABLED=1 时启用）：启动前先做有界等待，
+# 确保 broker(redis) 可达（解析 redis://host:port，python socket 探测 30 次 × 0.5s）。
+# 可达才后台启动 worker；超时打印错误并跳过 worker——HTTP/gRPC/HAProxy 不受影响，
+# 容器不因缺少 broker 而整体退出（异步任务将保持 pending，便于人工排查）。
+celery_broker_ready() {
+  python - "${GRAPH_ENGINE_CELERY_BROKER}" <<'PY'
+import socket
+import sys
+import time
+from urllib.parse import urlsplit
+
+url = sys.argv[1] or "redis://localhost:6379/0"
+u = urlsplit(url)
+host = u.hostname or "127.0.0.1"
+port = u.port or 6379
+for _ in range(30):
+    try:
+        with socket.create_connection((host, port), timeout=0.5):
+            sys.exit(0)
+    except OSError:
+        time.sleep(0.5)
+print(f"[error] Celery broker 不可达：{host}:{port}（{url}）", file=sys.stderr)
+sys.exit(1)
+PY
+}
+
 CELERY_PID=""
 if [ "${GRAPH_ENGINE_CELERY_ENABLED}" = "1" ]; then
-  graph-engine serve worker &
-  CELERY_PID=$!
+  if celery_broker_ready; then
+    echo "[info] Celery broker 可达（${GRAPH_ENGINE_CELERY_BROKER}），后台启动 worker"
+    graph-engine serve worker &
+    CELERY_PID=$!
+  else
+    echo "[error] Celery broker 等待超时（30 次 × 0.5s），本次不启动 worker" >&2
+  fi
 fi
 
 # ---------- 等待引擎就绪（HTTP /health + gRPC TCP，最多 60 次 × 0.5s） ----------

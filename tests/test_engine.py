@@ -279,3 +279,41 @@ def test_celery_tasks(tmp_path):
     result = build_task.run(gid, entities=[{"name": "Alice", "type": "person"}], doc_id="d1", job_id=job["jobId"])
     assert result["entityCount"] == 1
     assert rt_svc.get_job(job["jobId"])["status"] == "success"
+
+
+def test_celery_dispatch_job_disabled_noop(tmp_path, monkeypatch):
+    """未启用 celery 时 dispatch_job 返回 False、不投递，也不触碰 broker。"""
+    from graph_engine import runtime
+    from graph_engine.interfaces.celery_app import dispatch_job
+
+    monkeypatch.delenv("GRAPH_ENGINE_CELERY_ENABLED", raising=False)
+    runtime.reset_runtime()
+    rt_svc = runtime.get_service(str(tmp_path / "celery-disabled.db"))
+    gid = rt_svc.create_graph(name="Celery 图", kb_id="kb_celery_off", schema=SCHEMA)["graphId"]
+    payload = {"entities": [{"name": "Alice", "type": "person"}], "docId": "d1"}
+    job = rt_svc.submit_job("build", gid, payload)
+    assert dispatch_job(job["jobId"], gid, "build", payload) is False
+    # 未启用只登记 pending，状态保持不变
+    assert rt_svc.get_job(job["jobId"])["status"] == "pending"
+    # 未知 task 不抛异常
+    assert dispatch_job(job["jobId"], gid, "no_such_task", payload) is False
+
+
+def test_celery_dispatch_job_enabled_eager_success(tmp_path, monkeypatch):
+    """启用 celery + task_always_eager 时 submit_job + dispatch 后 job 为 success。"""
+    from graph_engine import runtime
+    from graph_engine.interfaces.celery_app import celery_app, dispatch_job
+
+    monkeypatch.setenv("GRAPH_ENGINE_CELERY_ENABLED", "1")
+    runtime.reset_runtime()
+    rt_svc = runtime.get_service(str(tmp_path / "celery-eager.db"))
+    gid = rt_svc.create_graph(name="Celery 图", kb_id="kb_celery_on", schema=SCHEMA)["graphId"]
+    payload = {"entities": [{"name": "Alice", "type": "person"}], "docId": "d1"}
+    job = rt_svc.submit_job("build", gid, payload)
+    previous_eager = celery_app.conf.task_always_eager
+    celery_app.conf.task_always_eager = True
+    try:
+        assert dispatch_job(job["jobId"], gid, "build", payload) is True
+    finally:
+        celery_app.conf.task_always_eager = previous_eager
+    assert rt_svc.get_job(job["jobId"])["status"] == "success"

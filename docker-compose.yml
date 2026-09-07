@@ -9,8 +9,10 @@
 #
 # 拓扑：宿主机 -> HAProxy(:8080 HTTP / :50051 gRPC / :8404 stats)
 #              -> graph-engine(127.0.0.1:18010 / 127.0.0.1:50051，仅回环，不对外)
+#              -> redis(Celery broker/backend，仅内部网络，不发布端口)
 # 升级旧镜像：先 bash scripts/build_docker.sh，再 docker compose up -d --build（避免复用旧 tag 镜像）
-# 生产必改：HAPROXY_STATS_PASSWORD；生产建议 GRAPH_ENGINE_CELERY_ENABLED=1 并接入真实 Redis
+# 生产必改：HAPROXY_STATS_PASSWORD；Celery compose 默认启用并指向内置 redis，
+# 如需外部 Redis 在 .env 覆写 GRAPH_ENGINE_CELERY_BROKER/BACKEND（地址须容器内可达）
 
 name: graph-engine
 
@@ -21,15 +23,20 @@ services:
       dockerfile: Dockerfile
     image: graph-engine:0.1.0
     restart: unless-stopped
+    depends_on:
+      redis:
+        condition: service_healthy
     environment:
       # 引擎
       GRAPH_ENGINE_DB_PATH: "${GRAPH_ENGINE_DB_PATH:-data/engine.db}"
       GRAPH_ENGINE_SEMANTICA: "${GRAPH_ENGINE_SEMANTICA:-1}"
       GRAPH_ENGINE_LOG_LEVEL: "${GRAPH_ENGINE_LOG_LEVEL:-INFO}"
-      # Celery worker（容器内默认关闭；启用需提供可用 broker/backend，如真实 Redis）
-      GRAPH_ENGINE_CELERY_ENABLED: "${GRAPH_ENGINE_CELERY_ENABLED:-0}"
-      GRAPH_ENGINE_CELERY_BROKER: "${GRAPH_ENGINE_CELERY_BROKER:-redis://localhost:6379/0}"
-      GRAPH_ENGINE_CELERY_BACKEND: "${GRAPH_ENGINE_CELERY_BACKEND:-redis://localhost:6379/0}"
+      # Celery worker：compose 栈默认启用，broker/backend 指向内置 redis 服务。
+      # docker run 单容器默认仍为关闭（entrypoint 内 GRAPH_ENGINE_CELERY_ENABLED 缺省 0），
+      # 此处显式传 1 仅影响 compose 栈；单容器启用需自备可达 broker/backend。
+      GRAPH_ENGINE_CELERY_ENABLED: "${GRAPH_ENGINE_CELERY_ENABLED:-1}"
+      GRAPH_ENGINE_CELERY_BROKER: "${GRAPH_ENGINE_CELERY_BROKER:-redis://redis:6379/0}"
+      GRAPH_ENGINE_CELERY_BACKEND: "${GRAPH_ENGINE_CELERY_BACKEND:-redis://redis:6379/0}"
       # HAProxy stats 登录账号（默认 admin / change-me，生产必改）
       HAPROXY_STATS_USER: "${HAPROXY_STATS_USER:-admin}"
       HAPROXY_STATS_PASSWORD: "${HAPROXY_STATS_PASSWORD:-change-me}"
@@ -48,6 +55,23 @@ services:
       retries: 5
       start_period: 20s
 
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    # 仅作 Celery broker/backend：加入 compose 默认内部网络，不发布任何宿主端口
+    # （engine 经 redis://redis:6379/0 访问）。数据挂命名卷 redis_data:/data 持久化：
+    # celery 排队任务/结果需尽量不因容器重建丢失，故开启 appendonly 落盘，保持配置最小。
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 5s
+
 volumes:
   engine_data:
   engine_logs:
+  redis_data:

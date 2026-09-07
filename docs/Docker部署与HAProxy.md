@@ -17,13 +17,19 @@
 │     ▼                                                          │
 │  graph-engine serve http(127.0.0.1:18010 仅回环)              │
 │  graph-engine serve grpc(127.0.0.1:50051 仅回环)              │
-│  [可选] graph-engine serve worker（GRAPH_ENGINE_CELERY_ENABLED=1）│
+│  graph-engine serve worker（Celery broker/backend → redis:6379）│
 └──────────────────────────────────────────────────────────────┘
+             │ engine 依赖 redis（compose 内部网络，不发布端口）
+             ▼
+   容器 graph-engine-redis-1（redis:7-alpine，AOF 持久化卷 redis_data）
 ```
 
 - **引擎服务不直接暴露**：HTTP/gRPC 只监听容器回环 `127.0.0.1`，容器网络内/外部均无法直连；唯一对外入口为 HAProxy。
 - 对外端口（compose 映射）：`18180`（HTTP → 容器 `8080`）、`18151`（gRPC → 容器 `50051`）、`8406`（HAProxy stats UI）。
-- MCP 为 stdio 协议、CLI 为本地命令，不参与网络代理；Celery worker 由环境变量控制是否在容器内随启。
+- MCP 为 stdio 协议、CLI 为本地命令，不参与网络代理；compose 栈额外启动 `redis:7-alpine`
+  作为 Celery broker/backend（仅 compose 内部网络可达，不发布宿主端口），worker 默认随启。
+- 异步语义：`POST .../build` 带 `async=true` 返回 `jobId`（pending），HTTP 进程投递 Celery，
+  worker 消费后回写 job 状态；`GET /api/v1/graph/jobs/{jobId}` 可轮询到 `success`。
 - 容器内入口用高位端口，避免非 root（uid 1000）绑定特权端口对运行时内核参数的依赖。
 
 ## 2. 构建镜像
@@ -52,7 +58,9 @@ docker compose down                 # 停止并清理容器/网络（数据卷�
 
 - 首次启动后等待健康：`docker ps` 中 `graph-engine-engine-1` 显示 `(healthy)` 即就绪。
 - 升级旧镜像：先 `bash scripts/build_docker.sh`，再 `docker compose up -d --build`（避免复用同 tag 旧镜像）。
-- 冒烟验证：`bash scripts/docker_smoke.sh`（6 项断言：`/health`、HTTP create+stat、gRPC 经 HAProxy 调用、stats 默认凭据 200/错误 401、引擎端口回环隔离、非 root 运行；`--force-build` 可强制重建）。
+- 冒烟验证：`bash scripts/docker_smoke.sh`（8 项断言：`/health`、HTTP create+stat、gRPC 经 HAProxy 调用、
+  stats 默认凭据 200/错误 401、引擎端口回环隔离、非 root 运行、Celery 端到端（worker 进程 + HTTP async
+  建图至 success）、容器内 CLI/MCP 冒烟；`--force-build` 可强制重建）。
 
 ## 4. 环境变量（自动配置）
 
@@ -66,8 +74,8 @@ docker compose down                 # 停止并清理容器/网络（数据卷�
 | `GRAPH_ENGINE_LOG_LEVEL` | `INFO` | 引擎日志级别 |
 | `GRAPH_ENGINE_HTTP_PORT` | `18010` | 引擎 HTTP 内部端口（仅回环；改后 HAProxy 自动跟随） |
 | `GRAPH_ENGINE_GRPC_PORT` | `50051` | 引擎 gRPC 内部端口（仅回环；改后 HAProxy 自动跟随） |
-| `GRAPH_ENGINE_CELERY_ENABLED` | `0` | `1` 时容器内随启 Celery worker |
-| `GRAPH_ENGINE_CELERY_BROKER` / `..._BACKEND` | `redis://localhost:6379/0` | Celery broker/backend（启用 worker 前需接入真实 Redis） |
+| `GRAPH_ENGINE_CELERY_ENABLED` | compose `1` / docker run `0` | `1` 时容器内随启 Celery worker（compose 默认启用，内置 redis） |
+| `GRAPH_ENGINE_CELERY_BROKER` / `..._BACKEND` | compose `redis://redis:6379/0` | Celery broker/backend；接外部 Redis 时写容器内可达地址 |
 | `HAPROXY_HTTP_PORT` | `18180` | HAProxy 对外 HTTP 端口（映射容器 `8080`） |
 | `HAPROXY_GRPC_PORT` | `18151` | HAProxy 对外 gRPC 端口（映射容器 `50051`） |
 | `HAPROXY_STATS_PORT` | `8406` | HAProxy stats 端口 |
@@ -83,6 +91,13 @@ curl -s http://127.0.0.1:18180/health
 curl -s -X POST http://127.0.0.1:18180/api/v1/graph/graphs \
   -H 'Content-Type: application/json' \
   -d '{"name":"测试图","kbId":"kb_demo","graphSchema":{"entityTypes":[{"type":"person"}],"relationTypes":[]}}'
+
+# HTTP async 建图 → 轮询 job（compose 栈默认启用 Celery + 内置 Redis）
+curl -s -X POST http://127.0.0.1:18180/api/v1/graph/graphs/graph_xxx/build \
+  -H 'Content-Type: application/json' \
+  -d '{"async":true,"docId":"d1","entities":[{"name":"Alice","type":"person"}]}'
+# → {"data":{"jobId":"job_xxx","status":"pending",...}}；worker 消费后：
+curl -s http://127.0.0.1:18180/api/v1/graph/jobs/job_xxx   # status=success 即完成
 
 # gRPC（经 HAProxy TCP 透传）
 .venv/bin/python -c "

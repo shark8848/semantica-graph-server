@@ -39,7 +39,7 @@ graph-engine graph export graph_xxx
 - 分层：`interfaces`（五面）→ `application.GraphEngineService`（用例）→ `domain`（稳定 ID/schema/合并规则）→ `adapters`（semantica + SQLite）。
 - 五面共用同一 application 层，语义一致；`async=true` 建图登记 job 后由 Celery worker 执行。
 - 稳定 ID 与增量合并/证据/置信度/schema 覆盖率语义**兼容 open-ikc 现有实现**，可零成本替换其进程内 `GraphStore`。
-- semantica 集成采用守卫式导入：`GraphBuilder` 建图、`GraphAnalyzer` 分析、`export` 导出；`semantica.context/vector_store` 当前因 pinecone 包冲突不可用，引擎不依赖该链路（修复：`pip install "pinecone>=5"` 后可切换 semantica 原生 MCP/检索能力）。
+- semantica 集成采用守卫式导入：`GraphBuilder` 建图、`GraphAnalyzer` 分析、`export` 导出；`semantica.context/vector_store` 当前因 pinecone 桩包冲突不可用，引擎不依赖该链路（修复路径见 `docs/方案-原生MCP检索接入.md`：先卸载改名桩 `pinecone-client`，再装新发布名 `pinecone>=6,<7`）。
 
 ## 测试
 
@@ -52,5 +52,7 @@ graph-engine graph export graph_xxx
 ## Docker 部署（单镜像 + HAProxy 反向代理）
 
 - 构建统一镜像（图引擎 + HAProxy 代理层同容器）：`bash scripts/build_docker.sh`
-- 启动：`docker compose up -d`（HAProxy 对外入口 HTTP `18180` / gRPC `18151` / stats `8406`）
-- 详细说明：`docs/Docker部署与HAProxy.md`；冒烟验证：`bash scripts/docker_smoke.sh`
+- 启动：`docker compose up -d`（HAProxy 对外入口 HTTP `18180` / gRPC `18151` / stats `8406`；compose 栈默认
+  附带内置 Redis 供 Celery worker 使用，`async=true` 建图由 worker 异步执行，`GET /api/v1/graph/jobs/{id}` 轮询）
+- 详细说明：`docs/Docker部署与HAProxy.md`；冒烟验证：`bash scripts/docker_smoke.sh`（HTTP/gRPC/stats/回环隔离/
+  非 root/Celery 端到端/MCP 与 CLI 八项）

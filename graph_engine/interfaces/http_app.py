@@ -84,14 +84,17 @@ def create_app(service: Any | None = None) -> FastAPI:
     def build_graph(request: Request, graph_id: str, payload: dict[str, Any]) -> JSONResponse:
         tid = _trace(request)
         if str(payload.get("async") or "").lower() in ("1", "true", "yes"):
-            return _handle(
-                tid,
-                lambda: svc.submit_job(
-                    "build_text" if payload.get("text") else "build",
-                    graph_id,
-                    payload,
-                ),
-            )
+            job_task = "build_text" if payload.get("text") else "build"
+
+            def _submit_and_dispatch() -> dict[str, Any]:
+                """登记 pending job；celery 启用时再投递，未启用仅登记。"""
+                job = svc.submit_job(job_task, graph_id, payload)
+                from .celery_app import dispatch_job
+
+                dispatch_job(job["jobId"], graph_id, job_task, payload)
+                return job
+
+            return _handle(tid, _submit_and_dispatch)
         return _handle(
             tid,
             lambda: (
