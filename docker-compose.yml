@@ -9,10 +9,14 @@
 #
 # 拓扑：宿主机 -> HAProxy(:8080 HTTP / :50051 gRPC / :8404 stats)
 #              -> graph-engine(127.0.0.1:18010 / 127.0.0.1:50051，仅回环，不对外)
-#              -> redis(Celery broker/backend，仅内部网络，不发布端口)
+#              -> 宿主本地 redis(Celery broker/backend，经 host.docker.internal 访问，不启动 redis 容器)
 # 升级旧镜像：先 bash scripts/build_docker.sh，再 docker compose up -d --build（避免复用旧 tag 镜像）
-# 生产必改：HAPROXY_STATS_PASSWORD；Celery compose 默认启用并指向内置 redis，
-# 如需外部 Redis 在 .env 覆写 GRAPH_ENGINE_CELERY_BROKER/BACKEND（地址须容器内可达）
+# 生产必改：HAPROXY_STATS_PASSWORD。
+# Celery：compose 默认启用并指向【宿主本地 redis】（host.docker.internal:6379，密码默认
+# 1qaz2wsx3edc）。不启动任何 redis 容器。可用 .env 覆写：
+#   - CELERY_BROKER_URL：完整 broker/backend URL（默认 redis://:1qaz2wsx3edc@host.docker.internal:6379/0）
+#   - GRAPH_ENGINE_CELERY_BROKER / ..._BACKEND：分别覆写（优先级最高）
+# 注意：宿主 redis 需监听 0.0.0.0 并开启密码，engine 容器才能经 host.docker.internal 访问。
 
 name: graph-engine
 
@@ -23,20 +27,22 @@ services:
       dockerfile: Dockerfile
     image: graph-engine:0.1.0
     restart: unless-stopped
-    depends_on:
-      redis:
-        condition: service_healthy
+    extra_hosts:
+      # 让容器内经 host.docker.internal 访问宿主本地 redis（host-gateway 映射宿主网关 IP）
+      - "host.docker.internal:host-gateway"
     environment:
       # 引擎
       GRAPH_ENGINE_DB_PATH: "${GRAPH_ENGINE_DB_PATH:-data/engine.db}"
       GRAPH_ENGINE_SEMANTICA: "${GRAPH_ENGINE_SEMANTICA:-1}"
       GRAPH_ENGINE_LOG_LEVEL: "${GRAPH_ENGINE_LOG_LEVEL:-INFO}"
-      # Celery worker：compose 栈默认启用，broker/backend 指向内置 redis 服务。
+      # Celery worker：compose 栈默认启用，broker/backend 指向宿主本地 redis（带密码）。
       # docker run 单容器默认仍为关闭（entrypoint 内 GRAPH_ENGINE_CELERY_ENABLED 缺省 0），
       # 此处显式传 1 仅影响 compose 栈；单容器启用需自备可达 broker/backend。
       GRAPH_ENGINE_CELERY_ENABLED: "${GRAPH_ENGINE_CELERY_ENABLED:-1}"
-      GRAPH_ENGINE_CELERY_BROKER: "${GRAPH_ENGINE_CELERY_BROKER:-redis://redis:6379/0}"
-      GRAPH_ENGINE_CELERY_BACKEND: "${GRAPH_ENGINE_CELERY_BACKEND:-redis://redis:6379/0}"
+      # 默认指向宿主本地 redis；可在 .env 用 CELERY_BROKER_URL 一键覆写（如换另一台 Redis），
+      # 或分别用 GRAPH_ENGINE_CELERY_BROKER / ..._BACKEND 精调。
+      GRAPH_ENGINE_CELERY_BROKER: "${GRAPH_ENGINE_CELERY_BROKER:-${CELERY_BROKER_URL:-redis://:1qaz2wsx3edc@host.docker.internal:6379/0}}"
+      GRAPH_ENGINE_CELERY_BACKEND: "${GRAPH_ENGINE_CELERY_BACKEND:-${CELERY_BROKER_URL:-redis://:1qaz2wsx3edc@host.docker.internal:6379/0}}"
       # HAProxy stats 登录账号（默认 admin / change-me，生产必改）
       HAPROXY_STATS_USER: "${HAPROXY_STATS_USER:-admin}"
       HAPROXY_STATS_PASSWORD: "${HAPROXY_STATS_PASSWORD:-change-me}"
@@ -55,23 +61,6 @@ services:
       retries: 5
       start_period: 20s
 
-  redis:
-    image: redis:7-alpine
-    restart: unless-stopped
-    # 仅作 Celery broker/backend：加入 compose 默认内部网络，不发布任何宿主端口
-    # （engine 经 redis://redis:6379/0 访问）。数据挂命名卷 redis_data:/data 持久化：
-    # celery 排队任务/结果需尽量不因容器重建丢失，故开启 appendonly 落盘，保持配置最小。
-    command: ["redis-server", "--appendonly", "yes"]
-    volumes:
-      - redis_data:/data
-    healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
-      interval: 5s
-      timeout: 3s
-      retries: 10
-      start_period: 5s
-
 volumes:
   engine_data:
   engine_logs:
-  redis_data:

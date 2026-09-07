@@ -54,6 +54,22 @@ fail() {
   exit 1
 }
 
+echo "[smoke] 0. 宿主本地 Redis 前置检查（Celery broker/backend，engine 经 host.docker.internal 访问）"
+REDIS_URL="${CELERY_BROKER_URL:-redis://:1qaz2wsx3edc@host.docker.internal:6379/0}"
+.venv/bin/python - "$REDIS_URL" <<'INNER' || fail "宿主 Redis 不可达：${REDIS_URL}"
+import sys
+from urllib.parse import urlsplit
+from redis import Redis
+
+url = sys.argv[1]
+u = urlsplit(url)
+r = Redis(host=u.hostname or "127.0.0.1", port=u.port or 6379, db=int((u.path or "/0").lstrip("/") or 0), password=u.password)
+if not r.ping():
+    print("FAIL: redis ping 失败", file=sys.stderr)
+    sys.exit(1)
+print(f"宿主 Redis OK（{u.hostname}:{u.port or 6379}）")
+INNER
+
 echo "[smoke] 1. /health 经 HAProxy"
 curl -fsS -m 5 "http://127.0.0.1:${HTTP_PORT}/health" >/dev/null || fail "/health 未就绪"
 

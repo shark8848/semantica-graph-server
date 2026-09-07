@@ -17,17 +17,19 @@
 │     ▼                                                          │
 │  graph-engine serve http(127.0.0.1:18010 仅回环)              │
 │  graph-engine serve grpc(127.0.0.1:50051 仅回环)              │
-│  graph-engine serve worker（Celery broker/backend → redis:6379）│
+│  graph-engine serve worker（Celery broker/backend → 宿主 redis）│
 └──────────────────────────────────────────────────────────────┘
-             │ engine 依赖 redis（compose 内部网络，不发布端口）
+             │ engine 经 host.docker.internal（host-gateway）访问宿主本地 redis
              ▼
-   容器 graph-engine-redis-1（redis:7-alpine，AOF 持久化卷 redis_data）
+   宿主 redis（0.0.0.0:6379，需开启密码；本栈不启动任何 redis 容器）
 ```
 
 - **引擎服务不直接暴露**：HTTP/gRPC 只监听容器回环 `127.0.0.1`，容器网络内/外部均无法直连；唯一对外入口为 HAProxy。
 - 对外端口（compose 映射）：`18180`（HTTP → 容器 `8080`）、`18151`（gRPC → 容器 `50051`）、`8406`（HAProxy stats UI）。
-- MCP 为 stdio 协议、CLI 为本地命令，不参与网络代理；compose 栈额外启动 `redis:7-alpine`
-  作为 Celery broker/backend（仅 compose 内部网络可达，不发布宿主端口），worker 默认随启。
+- MCP 为 stdio 协议、CLI 为本地命令，不参与网络代理；compose 栈**不启动任何 redis 容器**，
+  Celery broker/backend 默认指向宿主本地 redis（`redis://:1qaz2wsx3edc@host.docker.internal:6379/0`），
+  engine 容器经 `host.docker.internal`（`extra_hosts: host-gateway`）访问宿主 `0.0.0.0:6379`，
+  宿主 redis 需开启密码方可连接；worker 默认随启。
 - 异步语义：`POST .../build` 带 `async=true` 返回 `jobId`（pending），HTTP 进程投递 Celery，
   worker 消费后回写 job 状态；`GET /api/v1/graph/jobs/{jobId}` 可轮询到 `success`。
 - 容器内入口用高位端口，避免非 root（uid 1000）绑定特权端口对运行时内核参数的依赖。
@@ -74,8 +76,8 @@ docker compose down                 # 停止并清理容器/网络（数据卷�
 | `GRAPH_ENGINE_LOG_LEVEL` | `INFO` | 引擎日志级别 |
 | `GRAPH_ENGINE_HTTP_PORT` | `18010` | 引擎 HTTP 内部端口（仅回环；改后 HAProxy 自动跟随） |
 | `GRAPH_ENGINE_GRPC_PORT` | `50051` | 引擎 gRPC 内部端口（仅回环；改后 HAProxy 自动跟随） |
-| `GRAPH_ENGINE_CELERY_ENABLED` | compose `1` / docker run `0` | `1` 时容器内随启 Celery worker（compose 默认启用，内置 redis） |
-| `GRAPH_ENGINE_CELERY_BROKER` / `..._BACKEND` | compose `redis://redis:6379/0` | Celery broker/backend；接外部 Redis 时写容器内可达地址 |
+| `GRAPH_ENGINE_CELERY_ENABLED` | compose `1` / docker run `0` | `1` 时容器内随启 Celery worker（compose 默认启用，连宿主本地 redis） |
+| `GRAPH_ENGINE_CELERY_BROKER` / `..._BACKEND` | compose `redis://:1qaz2wsx3edc@host.docker.internal:6379/0` | Celery broker/backend，默认指向宿主本地 redis；换 Redis/密码时写容器内可达地址（也可用 `CELERY_BROKER_URL` 一键覆写） |
 | `HAPROXY_HTTP_PORT` | `18180` | HAProxy 对外 HTTP 端口（映射容器 `8080`） |
 | `HAPROXY_GRPC_PORT` | `18151` | HAProxy 对外 gRPC 端口（映射容器 `50051`） |
 | `HAPROXY_STATS_PORT` | `8406` | HAProxy stats 端口 |
@@ -92,7 +94,7 @@ curl -s -X POST http://127.0.0.1:18180/api/v1/graph/graphs \
   -H 'Content-Type: application/json' \
   -d '{"name":"测试图","kbId":"kb_demo","graphSchema":{"entityTypes":[{"type":"person"}],"relationTypes":[]}}'
 
-# HTTP async 建图 → 轮询 job（compose 栈默认启用 Celery + 内置 Redis）
+# HTTP async 建图 → 轮询 job（compose 栈默认启用 Celery，连宿主本地 Redis）
 curl -s -X POST http://127.0.0.1:18180/api/v1/graph/graphs/graph_xxx/build \
   -H 'Content-Type: application/json' \
   -d '{"async":true,"docId":"d1","entities":[{"name":"Alice","type":"person"}]}'

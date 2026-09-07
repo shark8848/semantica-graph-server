@@ -6,7 +6,7 @@ Docker 端到端冒烟测试（HTTP/gRPC/stats/回环隔离/非 root）	已完�
 Docker 默认端口与 open-ikc 分离（18180/18151/8406）	已完成	P1
 pytest 测试套件（12 passed）	已完成	P1
 五类接口实现（HTTP/gRPC/Celery/MCP/CLI）	已完成	P0
-Celery worker 接入真实 Redis（容器内启用）	进行中	P1
+Celery worker 接入真实 Redis（容器内启用，复用宿主本地 Redis）	已完成	P1
 semantica 原生 MCP/检索能力接入（pinecone 依赖修复后）	未开始	P2
 镜像体积精简评估（CPU-only torch / 最小依赖集）	进行中	P2
 MCP/CLI 镜像内冒烟脚本	进行中	P2
