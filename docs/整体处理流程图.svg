@@ -1,0 +1,284 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1560" height="1340" viewBox="0 0 1560 1340" font-family="'Noto Sans SC','PingFang SC','Microsoft YaHei',sans-serif">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#334155"/>
+    </marker>
+    <marker id="arrowD" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#9333ea"/>
+    </marker>
+  </defs>
+
+  <rect x="0" y="0" width="1560" height="1340" fill="#f8fafc"/>
+  <text x="700" y="34" text-anchor="middle" font-size="22" font-weight="bold" fill="#0f172a">Semantica Graph Engine · 整体处理流程图（含核心类）</text>
+  <text x="700" y="56" text-anchor="middle" font-size="13" fill="#475569">interfaces（五面协议）→ application（用例编排）→ domain / adapters → SQLite；异步链路：job → Celery → worker</text>
+
+  <!-- 图例 -->
+  <g font-size="11" fill="#334155">
+    <rect x="1080" y="20" width="14" height="10" fill="#dbeafe" stroke="#2563eb"/><text x="1099" y="29">协议面</text>
+    <rect x="1160" y="20" width="14" height="10" fill="#dcfce7" stroke="#16a34a"/><text x="1179" y="29">应用/运行时</text>
+    <rect x="1262" y="20" width="14" height="10" fill="#fef9c3" stroke="#ca8a04"/><text x="1281" y="29">领域层</text>
+    <rect x="1352" y="20" width="14" height="10" fill="#f3e8ff" stroke="#9333ea"/><text x="1371" y="29">异步链路</text>
+    <rect x="1442" y="20" width="14" height="10" fill="#ffedd5" stroke="#ea580c"/><text x="1461" y="29">存储</text>
+    <rect x="1080" y="40" width="14" height="10" fill="#ffe4e6" stroke="#be123c"/><text x="1099" y="49">适配器</text>
+    <rect x="1160" y="40" width="14" height="10" fill="#f1f5f9" stroke="#64748b"/><text x="1179" y="49">数据/错误</text>
+  </g>
+
+  <!-- ============ Band A：客户端/入口 ============ -->
+  <g>
+    <rect x="70" y="70" width="280" height="64" rx="8" fill="#eef2ff" stroke="#6366f1"/>
+    <text x="210" y="96" text-anchor="middle" font-size="14" font-weight="bold" fill="#3730a3">open-ikc 图谱服务</text>
+    <text x="210" y="116" text-anchor="middle" font-size="12" fill="#475569">REST + gRPC 客户端（薄化接入）</text>
+
+    <rect x="380" y="70" width="240" height="64" rx="8" fill="#eef2ff" stroke="#6366f1"/>
+    <text x="500" y="96" text-anchor="middle" font-size="14" font-weight="bold" fill="#3730a3">AI Agent / MCP Client</text>
+    <text x="500" y="116" text-anchor="middle" font-size="12" fill="#475569">MCP stdio JSON-RPC</text>
+
+    <rect x="650" y="70" width="200" height="64" rx="8" fill="#eef2ff" stroke="#6366f1"/>
+    <text x="750" y="96" text-anchor="middle" font-size="14" font-weight="bold" fill="#3730a3">开发者 / 运维</text>
+    <text x="750" y="116" text-anchor="middle" font-size="12" fill="#475569">graph-engine 命令行</text>
+
+    <rect x="880" y="70" width="350" height="64" rx="8" fill="#eef2ff" stroke="#6366f1" stroke-dasharray="5,4"/>
+    <text x="1055" y="90" text-anchor="middle" font-size="13" font-weight="bold" fill="#3730a3">部署：Docker compose + HAProxy</text>
+    <text x="1055" y="110" text-anchor="middle" font-size="11" fill="#475569">HTTP 18180 · gRPC 18151 · stats 8406（鉴权）</text>
+    <text x="1055" y="126" text-anchor="middle" font-size="11" fill="#475569">单镜像：图引擎 + 代理层（非 root 运行）</text>
+  </g>
+
+  <!-- 客户端 → 接口面 箭头 -->
+  <g stroke="#334155" stroke-width="1.6" fill="none">
+    <line x1="150" y1="134" x2="150" y2="176" marker-end="url(#arrow)"/>
+    <polyline points="320,134 320,152 490,152 490,176" marker-end="url(#arrow)"/>
+    <polyline points="570,134 570,152 780,152 780,176" marker-end="url(#arrow)"/>
+    <polyline points="800,134 800,150 1070,150 1070,176" marker-end="url(#arrow)"/>
+    <polyline points="930,134 930,146 280,146 280,176" marker-end="url(#arrow)" stroke-dasharray="5,4"/>
+    <polyline points="1080,134 1080,158 380,158 380,176" marker-end="url(#arrow)" stroke-dasharray="5,4"/>
+  </g>
+
+  <!-- ============ Band B：interfaces 协议面 ============ -->
+  <g>
+    <!-- HTTP -->
+    <rect x="70" y="178" width="260" height="170" rx="8" fill="#dbeafe" stroke="#2563eb"/>
+    <text x="200" y="202" text-anchor="middle" font-size="15" font-weight="bold" fill="#1e3a8a">HTTP 接口</text>
+    <line x1="82" y1="212" x2="318" y2="212" stroke="#2563eb" stroke-width="1"/>
+    <text x="82" y="232" font-size="12" fill="#1e40af">http_app.py · FastAPI · :18010</text>
+    <text x="82" y="256" font-size="11.5" fill="#334155">/graphs CRUD · build / merge / deprecate-doc</text>
+    <text x="82" y="276" font-size="11.5" fill="#334155">stat / nodes / edges / neighbors / paths</text>
+    <text x="82" y="296" font-size="11.5" fill="#334155">analytics / export / jobs / health / ready</text>
+    <text x="82" y="320" font-size="11.5" fill="#334155">build 支持 async=true（登记 job）</text>
+    <text x="82" y="340" font-size="11" fill="#64748b">响应统一 envelope 序列化</text>
+
+    <!-- gRPC -->
+    <rect x="360" y="178" width="260" height="170" rx="8" fill="#dbeafe" stroke="#2563eb"/>
+    <text x="490" y="202" text-anchor="middle" font-size="15" font-weight="bold" fill="#1e3a8a">gRPC 接口</text>
+    <line x1="372" y1="212" x2="608" y2="212" stroke="#2563eb" stroke-width="1"/>
+    <text x="372" y="232" font-size="12" fill="#1e40af">grpc_server.py · 动态 descriptor</text>
+    <text x="372" y="256" font-size="11.5" fill="#334155">契约：proto/graph/v1/graph.proto</text>
+    <text x="372" y="276" font-size="11.5" fill="#334155">15 个 RPC：CreateGraph / BuildGraph /</text>
+    <text x="372" y="296" font-size="11.5" fill="#334155">MergeRecords / DeprecateDoc / Stat /</text>
+    <text x="372" y="316" font-size="11.5" fill="#334155">ListNodes / Neighbors / ExportGraph / …</text>
+    <text x="372" y="340" font-size="11" fill="#64748b">envelope 语义与 HTTP 一一对应</text>
+
+    <!-- MCP -->
+    <rect x="650" y="178" width="260" height="170" rx="8" fill="#dbeafe" stroke="#2563eb"/>
+    <text x="780" y="202" text-anchor="middle" font-size="15" font-weight="bold" fill="#1e3a8a">MCP 接口</text>
+    <line x1="662" y1="212" x2="898" y2="212" stroke="#2563eb" stroke-width="1"/>
+    <text x="662" y="232" font-size="12" fill="#1e40af">mcp_server.py · stdio JSON-RPC</text>
+    <text x="662" y="256" font-size="11.5" fill="#334155">initialize / tools/list / tools/call</text>
+    <text x="662" y="276" font-size="11.5" fill="#334155">17 个工具：graph_create / graph_build /</text>
+    <text x="662" y="296" font-size="11.5" fill="#334155">graph_merge / graph_search / …</text>
+    <text x="662" y="316" font-size="11.5" fill="#334155">检索链不可用时降级：semantica:false</text>
+    <text x="662" y="340" font-size="11" fill="#64748b">GraphEngineError → JSON-RPC error</text>
+
+    <!-- CLI -->
+    <rect x="940" y="178" width="260" height="170" rx="8" fill="#dbeafe" stroke="#2563eb"/>
+    <text x="1070" y="202" text-anchor="middle" font-size="15" font-weight="bold" fill="#1e3a8a">CLI 接口</text>
+    <line x1="952" y1="212" x2="1188" y2="212" stroke="#2563eb" stroke-width="1"/>
+    <text x="952" y="232" font-size="12" fill="#1e40af">cli.py · typer · graph-engine</text>
+    <text x="952" y="256" font-size="11.5" fill="#334155">serve http | grpc | worker | mcp</text>
+    <text x="952" y="276" font-size="11.5" fill="#334155">create / build / merge / deprecate-doc</text>
+    <text x="952" y="296" font-size="11.5" fill="#334155">stat / nodes / edges / paths / export</text>
+    <text x="952" y="316" font-size="11.5" fill="#334155">job-run / job-get / job-list</text>
+    <text x="952" y="340" font-size="11" fill="#64748b">退出码约定同 open-ikc ikc</text>
+
+    <!-- Celery -->
+    <rect x="1230" y="178" width="260" height="170" rx="8" fill="#dbeafe" stroke="#2563eb"/>
+    <text x="1360" y="202" text-anchor="middle" font-size="15" font-weight="bold" fill="#1e3a8a">Celery 接口</text>
+    <line x1="1242" y1="212" x2="1478" y2="212" stroke="#2563eb" stroke-width="1"/>
+    <text x="1242" y="232" font-size="12" fill="#1e40af">celery_app.py</text>
+    <text x="1242" y="256" font-size="11.5" fill="#334155">任务：graph_engine.build / merge /</text>
+    <text x="1242" y="276" font-size="11.5" fill="#334155">deprecate_doc / export</text>
+    <text x="1242" y="296" font-size="11.5" fill="#334155">dispatch_job()：pending → broker 投递</text>
+    <text x="1242" y="316" font-size="11.5" fill="#334155">worker 成功回写 job 状态（result）</text>
+    <text x="1242" y="340" font-size="11" fill="#64748b">未启用 Celery：仅登记、不投递</text>
+  </g>
+
+  <!-- 接口面 → runtime -->
+  <g stroke="#334155" stroke-width="1.6" fill="none">
+    <polyline points="200,348 200,366 560,366 560,386" marker-end="url(#arrow)"/>
+    <line x1="490" y1="348" x2="490" y2="386" marker-end="url(#arrow)"/>
+    <line x1="780" y1="348" x2="780" y2="386" marker-end="url(#arrow)"/>
+    <line x1="1070" y1="348" x2="1070" y2="386" marker-end="url(#arrow)"/>
+    <polyline points="1360,348 1360,366 1000,366 1000,386" marker-end="url(#arrow)"/>
+  </g>
+
+  <!-- ============ Band C：runtime ============ -->
+  <g>
+    <rect x="430" y="388" width="700" height="64" rx="8" fill="#dcfce7" stroke="#16a34a"/>
+    <text x="780" y="410" text-anchor="middle" font-size="14" font-weight="bold" fill="#14532d">runtime.py · get_service() — 进程级单例（懒加载 + 锁）</text>
+    <text x="780" y="434" text-anchor="middle" font-size="12" fill="#166534">settings = get_settings()（config.py · env 优先） → GraphEngineService(get_store(db_path), semantica_enabled=…)</text>
+  </g>
+  <line x1="760" y1="452" x2="760" y2="480" stroke="#334155" stroke-width="1.6" marker-end="url(#arrow)"/>
+
+  <!-- ============ Band D：application / domain / 异步链路 ============ -->
+  <!-- domain -->
+  <g>
+    <rect x="70" y="482" width="360" height="290" rx="8" fill="#fef9c3" stroke="#ca8a04"/>
+    <text x="250" y="506" text-anchor="middle" font-size="15" font-weight="bold" fill="#713f12">domain（领域层）— graph_engine/domain/</text>
+    <line x1="82" y1="516" x2="418" y2="516" stroke="#ca8a04" stroke-width="1"/>
+    <text x="88" y="540" font-size="12.5" font-weight="bold" fill="#854d0e">ids.py</text>
+    <text x="88" y="558" font-size="11.5" fill="#3f3f46">graph_id / entity_id / relation_id（sha1 稳定 ID）</text>
+    <text x="88" y="586" font-size="12.5" font-weight="bold" fill="#854d0e">schema.py</text>
+    <text x="88" y="604" font-size="11.5" fill="#3f3f46">validate_graph_schema（graphSchema 校验）</text>
+    <text x="88" y="632" font-size="12.5" font-weight="bold" fill="#854d0e">merge.py</text>
+    <text x="88" y="650" font-size="11.5" fill="#3f3f46">合并规则：aliases 并集 · evidence 去重</text>
+    <text x="88" y="668" font-size="11.5" fill="#3f3f46">confidence 取大 · 状态迁移（active/deprecated）</text>
+    <text x="88" y="696" font-size="12.5" font-weight="bold" fill="#854d0e">models.py</text>
+    <text x="88" y="714" font-size="11.5" fill="#3f3f46">GraphMeta / EntityRecord / RelationRecord</text>
+    <text x="88" y="732" font-size="11" fill="#71717a">（to_dict / from_dict，协议层负责序列化）</text>
+  </g>
+
+  <!-- GraphEngineService -->
+  <g>
+    <rect x="480" y="482" width="500" height="290" rx="8" fill="#d1fae5" stroke="#059669"/>
+    <text x="730" y="506" text-anchor="middle" font-size="16" font-weight="bold" fill="#064e3b">GraphEngineService</text>
+    <text x="730" y="524" text-anchor="middle" font-size="11.5" fill="#065f46">application/service.py · 五面共用用例编排（返回普通 dict）</text>
+    <line x1="492" y1="534" x2="968" y2="534" stroke="#059669" stroke-width="1"/>
+    <text x="496" y="554" font-size="12" fill="#334155" font-style="italic">store: SqliteGraphStore</text>
+    <text x="496" y="572" font-size="12" fill="#334155" font-style="italic">semantica_enabled: bool ·  _retrieval: RetrievalAdapter | None（惰性）</text>
+    <line x1="492" y1="584" x2="968" y2="584" stroke="#059669" stroke-width="1"/>
+    <text x="496" y="608" font-size="12" fill="#134e4a">图 CRUD：create_graph / get_graph / delete_graph / list_graphs</text>
+    <text x="496" y="632" font-size="12" fill="#134e4a">建 图：build_from_records / build_from_text（text 可 llm=true）</text>
+    <text x="496" y="656" font-size="12" fill="#134e4a">增 量：merge_records / deprecate_doc</text>
+    <text x="496" y="680" font-size="12" fill="#134e4a">查 询：stat / nodes / edges / neighbors / paths / analytics / export</text>
+    <text x="496" y="704" font-size="12" fill="#134e4a">任 务：submit_job / run_job / get_job / list_jobs</text>
+    <text x="496" y="736" font-size="11" fill="#047857">build 流程：schema 校验 → 稳定 ID 派生 → semantica 建图 → 增量合并入库</text>
+    <text x="496" y="756" font-size="11" fill="#047857">所有用例抛出 GraphEngineError 族，协议面统一捕获转 envelope</text>
+  </g>
+
+  <!-- domain ↔ service -->
+  <line x1="430" y1="627" x2="478" y2="627" stroke="#334155" stroke-width="1.6" marker-start="url(#arrow)" marker-end="url(#arrow)"/>
+  <text x="454" y="618" text-anchor="middle" font-size="10.5" fill="#475569">ID/校验/合并</text>
+
+  <!-- 异步链路容器 -->
+  <g>
+    <rect x="1020" y="482" width="470" height="290" rx="8" fill="#faf5ff" stroke="#9333ea" stroke-dasharray="6,4"/>
+    <text x="1255" y="506" text-anchor="middle" font-size="14" font-weight="bold" fill="#6b21a8">异步链路（HTTP build async=true）</text>
+    <rect x="1040" y="520" width="430" height="46" rx="6" fill="#f3e8ff" stroke="#9333ea"/>
+    <text x="1255" y="548" text-anchor="middle" font-size="12" fill="#581c87">① submit_job()：登记 pending job（jobs 表）→ 响应 jobId</text>
+    <rect x="1040" y="582" width="430" height="46" rx="6" fill="#f3e8ff" stroke="#9333ea"/>
+    <text x="1255" y="610" text-anchor="middle" font-size="12" fill="#581c87">② dispatch_job()（celery_app）：celery_enabled 时投递 broker</text>
+    <rect x="1040" y="644" width="430" height="46" rx="6" fill="#f3e8ff" stroke="#9333ea"/>
+    <text x="1255" y="672" text-anchor="middle" font-size="12" fill="#581c87">③ Redis broker：host.docker.internal:6379（本地默认关闭）</text>
+    <rect x="1040" y="706" width="430" height="46" rx="6" fill="#f3e8ff" stroke="#9333ea"/>
+    <text x="1255" y="734" text-anchor="middle" font-size="12" fill="#581c87">④ Celery worker：run_job() 执行 → 回写 job 状态（success/failed）</text>
+    <line x1="1255" y1="566" x2="1255" y2="580" stroke="#9333ea" stroke-width="1.6" marker-end="url(#arrowD)"/>
+    <line x1="1255" y1="628" x2="1255" y2="642" stroke="#9333ea" stroke-width="1.6" marker-end="url(#arrowD)"/>
+    <line x1="1255" y1="690" x2="1255" y2="704" stroke="#9333ea" stroke-width="1.6" marker-end="url(#arrowD)"/>
+    <line x1="980" y1="543" x2="1038" y2="543" stroke="#9333ea" stroke-width="1.6" marker-end="url(#arrowD)"/>
+    <text x="1009" y="536" text-anchor="middle" font-size="10.5" fill="#7e22ce">async</text>
+    <line x1="1038" y1="729" x2="982" y2="729" stroke="#9333ea" stroke-width="1.6" stroke-dasharray="5,4" marker-end="url(#arrowD)"/>
+    <text x="1010" y="722" text-anchor="middle" font-size="10.5" fill="#7e22ce">复用 run_job</text>
+  </g>
+
+  <!-- ============ Band E：persistence ============ -->
+  <g>
+    <rect x="480" y="812" width="500" height="130" rx="8" fill="#ffedd5" stroke="#ea580c"/>
+    <text x="730" y="836" text-anchor="middle" font-size="15" font-weight="bold" fill="#7c2d12">SqliteGraphStore</text>
+    <text x="730" y="854" text-anchor="middle" font-size="11.5" fill="#9a3412">persistence/sqlite_store.py · WAL · 线程安全</text>
+    <line x1="492" y1="864" x2="968" y2="864" stroke="#ea580c" stroke-width="1"/>
+    <text x="496" y="886" font-size="11.5" fill="#431407">create_graph / get_graph_or_raise / delete_graph / list_graphs</text>
+    <text x="496" y="906" font-size="11.5" fill="#431407">save_entities / save_relations（稳定 ID upsert + 合并）/ deprecate</text>
+    <text x="496" y="926" font-size="11.5" fill="#431407">list_nodes / list_edges / neighbors / paths / stat / export</text>
+    <text x="496" y="938" font-size="11.5" fill="#431407">get_job / update_job / list_jobs（任务状态机）</text>
+  </g>
+  <line x1="730" y1="772" x2="730" y2="810" stroke="#334155" stroke-width="1.6" marker-end="url(#arrow)"/>
+  <text x="742" y="796" font-size="11" fill="#475569">读写</text>
+
+  <!-- DB 圆柱 -->
+  <g>
+    <path d="M1040 828 a150 16 0 0 1 300 0 v98 a150 16 0 0 1 -300 0 z" fill="#fde68a" stroke="#b45309"/>
+    <ellipse cx="1190" cy="828" rx="150" ry="16" fill="#fef3c7" stroke="#b45309"/>
+    <text x="1190" y="874" text-anchor="middle" font-size="13.5" font-weight="bold" fill="#78350f">data/engine.db（SQLite）</text>
+    <text x="1190" y="896" text-anchor="middle" font-size="12" fill="#92400e">graphs · entities · relations · jobs</text>
+    <text x="1190" y="916" text-anchor="middle" font-size="11" fill="#a16207">重启不丢 · 多租户字段隔离</text>
+  </g>
+  <line x1="980" y1="877" x2="1038" y2="877" stroke="#334155" stroke-width="1.6" marker-end="url(#arrow)"/>
+  <text x="1009" y="870" text-anchor="middle" font-size="11" fill="#475569">SQL</text>
+
+  <!-- ============ Band F：adapters ============ -->
+  <!-- service → adapters 连线 -->
+  <g stroke="#334155" stroke-width="1.6" fill="none">
+    <polyline points="560,772 560,790 242,790 242,980" marker-end="url(#arrow)"/>
+    <polyline points="980,700 1004,700 1004,964 612,964 612,980" marker-end="url(#arrow)"/>
+    <line x1="982" y1="964" x2="982" y2="980" marker-end="url(#arrow)"/>
+    <polyline points="1004,964 1352,964 1352,980" marker-end="url(#arrow)"/>
+  </g>
+  <text x="330" y="784" font-size="11" fill="#475569">建图 / 图分析</text>
+  <text x="700" y="958" font-size="11" fill="#475569">语义检索</text>
+  <text x="1000" y="958" font-size="11" fill="#475569">RDF 视图 / 导出</text>
+  <text x="1240" y="958" font-size="11" fill="#475569">LLM 增强</text>
+
+  <g>
+    <!-- F1 semantica -->
+    <rect x="70" y="982" width="345" height="160" rx="8" fill="#ffe4e6" stroke="#be123c"/>
+    <text x="242" y="1006" text-anchor="middle" font-size="14" font-weight="bold" fill="#881337">adapters/semantica.py</text>
+    <line x1="82" y1="1016" x2="403" y2="1016" stroke="#be123c" stroke-width="1"/>
+    <text x="82" y="1038" font-size="11.5" fill="#4c0519">semantica_available()：守卫式导入（0.6.5）</text>
+    <text x="82" y="1060" font-size="11.5" fill="#4c0519">build_kg() → semantica.kg.GraphBuilder（合并·去重）</text>
+    <text x="82" y="1082" font-size="11.5" fill="#4c0519">analyze_graph() → kg.GraphAnalyzer（扩展指标）</text>
+    <text x="82" y="1104" font-size="11.5" fill="#4c0519">EntityResolver（可选实体对齐增强）</text>
+    <text x="82" y="1130" font-size="11" fill="#9f1239">避开 pinecone 冲突链路（context / vector_store）</text>
+
+    <!-- F2 retrieval -->
+    <rect x="440" y="982" width="345" height="160" rx="8" fill="#ffe4e6" stroke="#be123c"/>
+    <text x="612" y="1006" text-anchor="middle" font-size="14" font-weight="bold" fill="#881337">adapters/retrieval.py</text>
+    <line x1="452" y1="1016" x2="773" y2="1016" stroke="#be123c" stroke-width="1"/>
+    <text x="452" y="1038" font-size="11.5" fill="#4c0519">RetrievalBackend（Protocol，可替换后端）</text>
+    <text x="452" y="1060" font-size="11.5" fill="#4c0519">RetrievalAdapter：graph_search / graph_index_status</text>
+    <text x="452" y="1082" font-size="11.5" fill="#4c0519">守卫探测 semantica 检索链（vector_store / context）</text>
+    <text x="452" y="1104" font-size="11.5" fill="#4c0519">不可用或未配置时确定降级</text>
+    <text x="452" y="1130" font-size="11" fill="#9f1239">降级响应：semantica:false · hits:[]</text>
+
+    <!-- F3 rdf -->
+    <rect x="810" y="982" width="345" height="160" rx="8" fill="#ffe4e6" stroke="#be123c"/>
+    <text x="982" y="1006" text-anchor="middle" font-size="14" font-weight="bold" fill="#881337">adapters/rdf.py</text>
+    <line x1="822" y1="1016" x2="1143" y2="1016" stroke="#be123c" stroke-width="1"/>
+    <text x="822" y="1038" font-size="11.5" fill="#4c0519">build_view()：实体/关系 → RDF 三元组视图</text>
+    <text x="822" y="1060" font-size="11.5" fill="#4c0519">run_sparql()：SPARQL 查询（pyoxigraph）</text>
+    <text x="822" y="1082" font-size="11.5" fill="#4c0519">export_rdf()：RDF 导出（ttl 等格式）</text>
+    <text x="822" y="1104" font-size="11.5" fill="#4c0519">entity_uri / relation_uri 稳定 URI 派生</text>
+    <text x="822" y="1130" font-size="11" fill="#9f1239">rdf_available() 守卫 · 预留扩展位</text>
+
+    <!-- F4 llm -->
+    <rect x="1180" y="982" width="345" height="160" rx="8" fill="#ffe4e6" stroke="#be123c"/>
+    <text x="1352" y="1006" text-anchor="middle" font-size="14" font-weight="bold" fill="#881337">adapters/llm.py</text>
+    <line x1="1192" y1="1016" x2="1513" y2="1016" stroke="#be123c" stroke-width="1"/>
+    <text x="1192" y="1038" font-size="11.5" fill="#4c0519">llm_modules_available()：守卫探测 LLM 模块</text>
+    <text x="1192" y="1060" font-size="11.5" fill="#4c0519">enhance_text_entities()：文本实体增强</text>
+    <text x="1192" y="1082" font-size="11.5" fill="#4c0519">build(text, llm=true) 时叠加抽取结果</text>
+    <text x="1192" y="1104" font-size="11.5" fill="#4c0519">不可用时静默降级为规则抽取</text>
+    <text x="1192" y="1130" font-size="11" fill="#9f1239">torch / sentence-transformers 重依赖隔离</text>
+  </g>
+
+  <!-- adapters → 错误/协议 -->
+  <line x1="780" y1="1142" x2="780" y2="1180" stroke="#334155" stroke-width="1.6" stroke-dasharray="5,4" marker-end="url(#arrow)"/>
+  <text x="792" y="1166" font-size="11" fill="#475569">所有层抛出 → 协议面统一捕获序列化</text>
+
+  <!-- ============ Band G：errors / protocol ============ -->
+  <g>
+    <rect x="70" y="1182" width="1455" height="120" rx="8" fill="#f1f5f9" stroke="#64748b"/>
+    <text x="90" y="1206" font-size="14" font-weight="bold" fill="#1e293b">统一错误与响应 envelope — errors.py · protocol.py</text>
+    <text x="90" y="1232" font-size="12" fill="#334155">GraphEngineError（基类：errCode + detail）→ InvalidParamsError 200001 · NotFoundError 200404 · ConflictError 200409 · 内部错误 200500</text>
+    <text x="90" y="1258" font-size="12" fill="#334155">响应 envelope（五面统一）：{ "traceId": "…", "errCode": "0", "errMsg": "", "data": { … } }</text>
+    <text x="90" y="1284" font-size="11.5" fill="#64748b">协议面只做协议适配与序列化，不复制业务逻辑 —— 保证 HTTP / gRPC / MCP / CLI / Celery 语义一致</text>
+  </g>
+</svg>
