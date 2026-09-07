@@ -49,10 +49,12 @@ Semantica Graph Engine：把已安装的 `semantica`（0.6.5）封装为对外�
 - 直接推 `main`（direct-push，无 PR），与 `/home/open-ikc`、`/home/ontolith` 工作流一致。
 - 推送前用 `git remote -v` 核对远端，勿改回内部镜像地址。
 
-## 委派执行契约（PROJ-SEMANTICA-0002：qoderclicn 常态委派）
+## 委派执行契约（PROJ-SEMANTICA-0002：qoderclicn / jscode 常态委派）
 
-- 看板剩余任务中的**轻量实现类任务默认委派给本机 qoderclicn agent**（QoderCN CLI，
-  入口 `/home/sharkyai/.local/bin/qoderclicn`，非交互 `-p/--print`）执行；
+- 看板剩余任务中的**简单/轻量实现类任务默认委派给本机 agent 执行**，候选执行方：
+  - **qoderclicn**（QoderCN CLI，入口 `/home/sharkyai/.local/bin/qoderclicn`，非交互 `-p/--print`）；
+  - **jscode**（入口 `/home/sharkyai/.nvm/versions/node/v24.20.0/bin/jscode`，`jscode run "<任务说明>" --dir <repo>`）。
+  两者任一可用即委派；可并行时以 `--worktree <name>` 隔离，或拆分不重叠写文件范围。
   Codex 会话负责编排、评审、复验、提交与看板同步（git 写操作、GitHub Projects 同步默认不委托）。
 - **委派范围只限三类**：写代码、写文档、单元测试。**以下任务一律不委派**：
   - 复杂构建/重活（Docker 镜像构建、`docker compose up`、重量级编译/打包、CI 类全流程）；
@@ -61,8 +63,10 @@ Semantica Graph Engine：把已安装的 `semantica`（0.6.5）封装为对外�
   上述任务留在 Codex 会话内执行（逐条申请人工批准），或输出为"待人工执行"清单。
 - 委派调用范式（非交互、单仓库直接执行）：
   `qoderclicn -p "<任务说明>" --cwd /home/sharkyai/semantica-graph-server`
-  （权限模式按需选 `accept_edits` 或 `auto`；即便 `auto` 也只允许执行任务说明内的命令，
-  禁止说明外的 docker/构建/网络/系统命令）
+  或 `jscode run "<任务说明>" --dir /home/sharkyai/semantica-graph-server`
+  （权限模式按需选 `accept_edits`/`auto`（qoderclicn）或默认非危险模式（jscode，禁止默认启用
+  `--dangerously-skip-permissions`）；即便高权限也只允许执行任务说明内的命令，禁止说明外的
+  docker/构建/网络/系统命令）
   - 任务说明必须包含：可写文件白名单、禁止改动清单、禁止行为（git 写操作/删除数据/泄露凭据）、
     验收命令与通过标准、完成后报告格式（改动文件清单 + 关键验证输出）。
   - 需工作树隔离的并行任务用 `--worktree <name>` 起独立 worktree，完成后由 Codex 会话合并评审；
