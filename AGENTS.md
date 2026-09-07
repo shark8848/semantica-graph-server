@@ -48,3 +48,27 @@ Semantica Graph Engine：把已安装的 `semantica`（0.6.5）封装为对外�
 - `origin`：`git@github.com:shark8848/semantica-graph-server.git`（已验证 SSH 22/443 均连通）。
 - 直接推 `main`（direct-push，无 PR），与 `/home/open-ikc`、`/home/ontolith` 工作流一致。
 - 推送前用 `git remote -v` 核对远端，勿改回内部镜像地址。
+
+## 委派执行契约（PROJ-SEMANTICA-0002：qoderclicn 常态委派）
+
+- 看板剩余任务中的**轻量实现类任务默认委派给本机 qoderclicn agent**（QoderCN CLI，
+  入口 `/home/sharkyai/.local/bin/qoderclicn`，非交互 `-p/--print`）执行；
+  Codex 会话负责编排、评审、复验、提交与看板同步（git 写操作、GitHub Projects 同步默认不委托）。
+- **委派范围只限三类**：写代码、写文档、单元测试。**以下任务一律不委派**：
+  - 复杂构建/重活（Docker 镜像构建、`docker compose up`、重量级编译/打包、CI 类全流程）；
+  - 系统级/网络级操作（pip 安装卸载、依赖升级、端口/服务管理、sudo、下载大文件）；
+  - 部署与生产变更、需要外部凭据/机密的操作、不可逆数据操作。
+  上述任务留在 Codex 会话内执行（逐条申请人工批准），或输出为"待人工执行"清单。
+- 委派调用范式（非交互、单仓库直接执行）：
+  `qoderclicn -p "<任务说明>" --cwd /home/sharkyai/semantica-graph-server`
+  （权限模式按需选 `accept_edits` 或 `auto`；即便 `auto` 也只允许执行任务说明内的命令，
+  禁止说明外的 docker/构建/网络/系统命令）
+  - 任务说明必须包含：可写文件白名单、禁止改动清单、禁止行为（git 写操作/删除数据/泄露凭据）、
+    验收命令与通过标准、完成后报告格式（改动文件清单 + 关键验证输出）。
+  - 需工作树隔离的并行任务用 `--worktree <name>` 起独立 worktree，完成后由 Codex 会话合并评审；
+    单一 `--cwd` 任务必须限定不重叠的写文件范围。
+  - 单元测试委派只允许跑仓库自带验证（如 `.venv/bin/python -m pytest tests -q`、`bash -n`）；
+    禁止在委派任务里附带 Docker/pip/网络验证。
+  - 涉密操作（`/tmp/gh_token` 等）禁止委托。
+- 委派结果回收规则：Codex 会话必须复验（`pytest tests -q`、`bash -n`、必要时 Docker 冒烟），
+  再更新 `docs/project-board.tsv` 与文档，按 Conventional Commits 提交并推送 `origin/main`。
