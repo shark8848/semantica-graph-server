@@ -53,8 +53,12 @@ Semantica Graph Engine：把已安装的 `semantica`（0.6.5）封装为对外�
 ## GitHub Projects Sync (PROJ-SEMANTICA-0001)
 
 - Target board: https://github.com/users/shark8848/projects/5（用户级 Projects v2，标题 "@shark8848's semantica-graph-server project"）。
-- Auth: Classic PAT（`project` scope）写入 `/tmp/gh_token`（chmod 600）；**禁止入库**；
-  fine-grained PAT 无法访问用户级 Projects v2。
+- Auth: Classic PAT（`project` scope）写入 `/tmp/gh_token`（chmod 600），并在 `~/.gh_token` 留持久副本
+  （`/tmp` 重启会清空；`scripts/sync-github-projects.sh` 依次回退读取，同一令牌可复用于其它项目）；
+  **两个位置均禁止入库**；fine-grained PAT 无法访问用户级 Projects v2。
+- 最近同步：2026-09-15（`bash scripts/sync-github-projects.sh docs/project-board.tsv` →
+  `ok=15 updated=8 fail=0`，回读 total=16，其中含 1 条历史重命名遗留的重复旧条目
+  「Celery worker 接入真实 Redis（容器内启用）」，待清理）。
 - 条目清单（契约的一部分）：`docs/project-board.tsv`，格式 `标题<TAB>状态<TAB>优先级`；
   状态 ∈ `未开始|进行中|已完成`（看板选项为英文，按别名映射 Backlog / In progress / Done），
   优先级 ∈ `P0|P1|P2`（可空）。

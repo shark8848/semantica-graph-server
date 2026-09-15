@@ -3,11 +3,20 @@
 # 用法: scripts/sync-github-projects.sh [items.tsv]
 #   items.tsv 每行: 标题<TAB>状态<TAB>[优先级]；状态 ∈ 未开始|进行中|已完成，优先级 ∈ P0|P1|P2（可空）。
 #   默认读取 docs/project-board.tsv（契约的一部分，随仓库提交）。
-# 前置: Classic PAT（project scope）写入 /tmp/gh_token（chmod 600）。
+# 前置: Classic PAT（project scope）写入 /tmp/gh_token（chmod 600）；缺失时回退 ~/.gh_token
+#       （持久副本，重启后 /tmp 会清空；同一令牌可复用于其它项目）。
 # 幂等：按标题匹配，缺失创建，存在只更新字段。字段/选项 ID 每次自动发现。
 set -uo pipefail
 TSV="${1:-docs/project-board.tsv}"
-TOKEN=$(cat /tmp/gh_token)
+if [ -r /tmp/gh_token ]; then
+  TOKEN=$(cat /tmp/gh_token)
+elif [ -r "${HOME}/.gh_token" ]; then
+  TOKEN=$(cat "${HOME}/.gh_token")
+else
+  echo "[sync] 未找到令牌：请把 Classic PAT（project scope）写入 /tmp/gh_token 或 ~/.gh_token（chmod 600）" >&2
+  exit 1
+fi
+[ -n "$TOKEN" ] || { echo "[sync] 令牌为空" >&2; exit 1; }
 API=https://api.github.com/graphql
 AUTH=(-H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json")
 OWNER=shark8848
