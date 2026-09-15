@@ -42,3 +42,33 @@
 - 无需手工改 haproxy.cfg：`GRAPH_ENGINE_HTTP_PORT` / `GRAPH_ENGINE_GRPC_PORT` / `HAPROXY_STATS_USER` /
   `HAPROXY_STATS_PASSWORD` 由 entrypoint 用 envsubst 渲染进配置；compose 端口映射同理可用环境变量覆盖。
 - Celery worker 默认关闭（`GRAPH_ENGINE_CELERY_ENABLED=0`），MCP/CLI 为非网络协议不代理。
+
+## 复验与修复（2026-09-15）
+
+环境：Docker 29.6.2 / Compose v5.3.1 / 宿主本地 Redis `0.0.0.0:6379`（带密码），
+镜像 `graph-engine:0.1.0`（`docker images` 显示 11.3 GB；`docker image inspect .Size` 为 3.65 GB，
+两者计量口径不同），全量构建（依赖层重新下载 torch/nvidia 等）约 13–15 分钟。
+
+- `bash scripts/build_docker.sh` ✅ 构建成功；`docker compose up -d` ✅ 容器 `graph-engine-engine-1` `(healthy)`。
+- `bash scripts/docker_smoke.sh` ✅ **PASS：单镜像栈全部冒烟通过（HTTP 18180 / gRPC 18151 / stats 8406 /
+  Celery / MCP / CLI）**，8 项断言全绿。
+- 独立端到端验证（未走冒烟脚本）✅：同步建图（2 实体 + 1 关系 → `nodeCount=2, edgeCount=1`）、
+  异步建图 `async=true` → job 轮询至 `success`、gRPC `Stat` 经 HAProxy（`nodeCount=3`）、
+  stats 默认凭据 200 / 错误凭据 401、引擎 18010/50051 回环隔离、容器 uid/gid 1000、CLI `stat`、MCP 握手。
+
+### 本轮实测修复
+
+| 问题 | 现象 | 根因 | 修复 |
+| --- | --- | --- | --- |
+| 镜像缺 `redis`（redis-py） | 容器内 Celery worker 启动即崩（`AttributeError: 'NoneType' object has no attribute 'Redis'`，来自 `kombu/transport/redis.py`），`async=true` 建图永久 `pending`，但容器仍显示 `(healthy)` | `requirements.txt` / `pyproject.toml` 只写 `celery>=5.3`，未带 `[redis]` extra；开发 venv 已装 `redis 8.1.0` 掩盖了缺口 | 两者同步改为 `celery[redis]>=5.3`（`redis-py` 进镜像） |
+| 冒烟脚本宿主侧 Redis 预检地址 | `host.docker.internal` 预检报 `Connection closed by server`，冒烟在步骤 0 即失败 | 该别名是**容器内**语义；本机 DNS 把它解析到 `192.168.137.50`（非本机 Redis） | `scripts/docker_smoke.sh` 预检时归一化为 `127.0.0.1`（容器内仍用别名） |
+| 镜像缺 `ikc-sdk-lib` | 容器启动 `ModuleNotFoundError: No module named 'ikc_sdk'`（旧镜像 2026-09-09 构建） | builder 只按 `requirements.txt` 装包，`pyproject.toml` 里的 `ikc-sdk-lib==0.7.0` 未同步到前者 | `requirements.txt` 补 `ikc-sdk-lib==0.7.0`（本轮重建后复验通过） |
+
+### 复验发现的运维坑（已写入 `docs/本地Docker部署手册.md`）
+
+- **健康检查不等于业务可用**：`HEALTHCHECK` 只探 `/health`，worker 崩溃时容器依旧 `(healthy)`——
+  本轮问题正是如此，必须跑 `scripts/docker_smoke.sh` 才能覆盖 Celery 端到端。
+- 镜像基于 `python:3.12-slim`，**没有 `ps` / `netstat`**：排查用 `docker top <容器>`，或用容器内 python 扫
+  `/proc/*/cmdline`（冒烟脚本步骤 7a 即此法）。
+- 同一 `kbId` 重复 `POST /api/v1/graph/graphs` 返回 **409**（唯一约束，非故障）。
+- CLI 命令为**顶层结构**：`graph-engine create|stat|...`，不存在 `graph-engine graph stat`（会打印 usage 报错）。

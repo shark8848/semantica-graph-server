@@ -9,7 +9,7 @@ pytest 测试套件（12 passed）	已完成	P1
 Celery worker 接入真实 Redis（容器内启用，复用宿主本地 Redis）	已完成	P1
 semantica 原生 MCP/检索能力接入（pinecone 依赖修复后）	未开始	P2
 镜像体积精简评估（CPU-only torch / 最小依赖集）	进行中	P2
-MCP/CLI 镜像内冒烟脚本	进行中	P2
+MCP/CLI 镜像内冒烟脚本	已完成	P2
 Python SDK 设计与实现（semantica-graph-sdk：同步/异步客户端 + 模型 + 异常/重试语义）	已完成	P1
 HTTP 面补齐语义检索/索引状态端点（与 MCP/application 层对齐）	已完成	P1
 修复 /analytics JSON 序列化缺陷（GraphAnalyzer frozenset → list，回归单测）	已完成	P1

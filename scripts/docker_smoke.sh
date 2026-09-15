@@ -63,11 +63,17 @@ from redis import Redis
 
 url = sys.argv[1]
 u = urlsplit(url)
-r = Redis(host=u.hostname or "127.0.0.1", port=u.port or 6379, db=int((u.path or "/0").lstrip("/") or 0), password=u.password)
+# 本检查在【宿主】执行：host.docker.internal 是容器内别名，宿主上可能被 DNS 解析到
+# 其它机器（实测本机解析到 192.168.137.50，Redis 连接被对端关闭），故归一化为回环地址；
+# 容器内仍按原样使用 host.docker.internal（由 compose extra_hosts: host-gateway 保证）。
+host = u.hostname or "127.0.0.1"
+if host == "host.docker.internal":
+    host = "127.0.0.1"
+r = Redis(host=host, port=u.port or 6379, db=int((u.path or "/0").lstrip("/") or 0), password=u.password)
 if not r.ping():
     print("FAIL: redis ping 失败", file=sys.stderr)
     sys.exit(1)
-print(f"宿主 Redis OK（{u.hostname}:{u.port or 6379}）")
+print(f"宿主 Redis OK（{host}:{u.port or 6379}）")
 INNER
 
 echo "[smoke] 1. /health 经 HAProxy"

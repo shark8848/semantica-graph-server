@@ -9,7 +9,10 @@ uvicorn[standard]>=0.30
 pydantic>=2.0
 grpcio>=1.81
 protobuf>=5.29
-celery>=5.3
+# celery[redis]：worker 的 broker/backend 是 Redis，必须带 redis extra（redis-py），
+# 否则容器内 kombu 的 redis 传输导入失败（'NoneType' has no attribute 'Redis'），
+# worker 一启动即崩、异步作业永久 pending。开发 venv 因已装 redis 8.1.0 掩盖了该缺口。
+celery[redis]>=5.3
 typer>=0.12
 # 跨层共享模型/协议 SDK（跨仓归位契约）：图谱资产对象（G8）、traceId 纯函数（G2）、
 # 引擎作业视图与状态映射（G3）。引擎 domain/application/interfaces 直接 import ikc_sdk，

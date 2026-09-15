@@ -20,7 +20,8 @@ dependencies = [
   "ikc-sdk-lib==0.7.0",
   "grpcio>=1.81",
   "protobuf>=5.29",
-  "celery>=5.3",
+  # 带 redis extra：Celery broker/backend 走 Redis，缺 redis-py 时 worker 启动即崩
+  "celery[redis]>=5.3",
   "typer>=0.12",
 ]
 

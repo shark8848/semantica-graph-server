@@ -7,11 +7,13 @@
 参考：openwiki-server `docs/deploy-offline.md`（同款「单镜像 + HAProxy 唯一入口」拓扑），
 与本手册的差异见第 12 节对照表。
 
-> **验证边界**：本手册编写环境无 Docker daemon 权限（`/var/run/docker.sock` 不可读），
-> 文中 `docker` 命令**未在本机实测**；已完成的是 `Dockerfile` / `docker-compose.yml` /
-> `docker/entrypoint.sh` / `docker/haproxy.cfg` / `scripts/*.sh` 的静态一致性核对与 `bash -n` /
-> `pytest tests sdk/python/tests`。历史实测记录见 `docs/Docker构建进展.md`，
-> 镜像体积估算见 `docs/镜像体积精简评估.md`。
+> **实测状态（2026-09-15）**：本手册流程已在带 Docker daemon 的宿主（Docker 29.6.2 / Compose v5.3.1 /
+> 宿主本地 Redis 0.0.0.0:6379）**全量跑通**——`docker build` 成功、`docker compose up -d` 容器 `healthy`、
+> `bash scripts/docker_smoke.sh` 8 项断言全绿，另独立验证了同步/异步建图、gRPC、stats 401/200、
+> 回环隔离、非 root、CLI/MCP。实测数据：镜像 `docker images` 显示 **11.3 GB**（`docker image inspect .Size` 为
+> 3.65 GB，两者计量口径不同），单次构建约 13–15 分钟（依赖层失效时需重新下载 torch/nvidia 依赖）。
+> 体积构成分析见 `docs/镜像体积精简评估.md`，构建改造与历史记录见 `docs/Docker构建进展.md`。
+> 撰写期无 daemon 时的静态核对（`bash -n`、`pytest`）见本手册早期版本与仓库 git 历史。
 
 ## 0. 一键（TL;DR，本机）
 
@@ -27,7 +29,7 @@ bash scripts/docker_smoke.sh        # 8 项冒烟（脚本内部会自行 compos
 
 | 镜像:标签 | 体积（估算） | 来源 | 用途 |
 | --- | --- | --- | --- |
-| `graph-engine:0.1.0` | 数 GB（估算 4.5–6.5 GB，见 `docs/镜像体积精简评估.md`；未实测） | `Dockerfile` 多阶段（`builder` → `python:3.12-slim` runtime） | 单镜像内含引擎（HTTP/gRPC/Celery/MCP/CLI）+ HAProxy 代理层 + gettext(envsubst) |
+| `graph-engine:0.1.0` | 实测 `docker images` **11.3 GB**（`image inspect .Size` 3.65 GB） | `Dockerfile` 多阶段（`builder` → `python:3.12-slim` runtime） | 单镜像内含引擎（HTTP/gRPC/Celery/MCP/CLI）+ HAProxy 代理层 + gettext(envsubst) |
 
 容器内拓扑（引擎只监听回环，对外唯一入口为 HAProxy）：
 
@@ -77,6 +79,12 @@ IMAGE_TAG=graph-engine:test bash scripts/build_docker.sh   # 自定义 tag（com
   pip `--timeout 300 --retries 15` 抗网络抖动），**依赖层只随 `requirements.txt` 失效**，
   改代码不重复下载大依赖；`runtime` 只复制安装产物 + HAProxy/gettext。
 - 构建完成后脚本打印镜像体积；`docker images | grep graph-engine` 可核验。
+- **实测**：本机单次构建约 13–15 分钟（`requirements.txt` 变更会触发依赖层重装，需重新下载
+  torch/nvidia 等数 GB wheel）；仅改 `graph_engine/` 代码时依赖层命中缓存，构建在分钟级完成。
+- **依赖必须写进 `requirements.txt` / `pyproject.toml`**：镜像 builder 只按这两个文件装包，
+  开发 venv 里"碰巧已装"的包不会进镜像。曾因此踩坑——`celery>=5.3` 未带 `[redis]` extra，
+  本地 venv 有 `redis 8.1.0` 而镜像没有，导致容器内 worker 一启动就崩、异步作业永久 `pending`
+  （现已改为 `celery[redis]>=5.3`）。
 
 ### 2.3 无外网构建机（离线依赖预置，未实测）
 
@@ -211,6 +219,9 @@ curl -s -u admin:REPLACE_WITH_STRONG_PASSWORD -o /dev/null -w '%{http_code}\n' h
 
 # 容器内 CLI 与 MCP（复用同一数据卷的 SQLite）
 docker exec graph-engine-engine-1 graph-engine --help
+docker exec graph-engine-engine-1 graph-engine create --name cli-demo --kb-id kb_cli_demo \
+  --schema '{"entityTypes":[{"type":"person"}],"relationTypes":[]}'     # 成功输出为裸 JSON（无 envelope）
+docker exec graph-engine-engine-1 graph-engine stat <graphId>           # 命令为顶层结构（非 `graph stat`）
 printf '%s\n' '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}' '{"jsonrpc":"2.0","id":2,"method":"tools/list"}' \
   | docker exec -i graph-engine-engine-1 timeout 15 graph-engine serve mcp
 ```
@@ -226,6 +237,10 @@ bash scripts/docker_smoke.sh                 # 镜像不存在时自动构建；
 
 - 冒烟脚本前置：宿主 Redis 可达（可用 `CELERY_BROKER_URL` 覆写）、仓库 `.venv` 可用、18180/18151/8406 空闲；
   脚本退出时会执行 `docker compose down` 清理容器（**数据卷保留**）。
+- **实测（2026-09-15）**：`bash scripts/docker_smoke.sh` → `PASS：单镜像栈全部冒烟通过（HTTP 18180 /
+  gRPC 18151 / stats 8406 / Celery / MCP / CLI）`。脚本宿主侧预检已把 `host.docker.internal`
+  归一化为 `127.0.0.1`（该别名是容器内语义；宿主上可能被 DNS 解析到其它机器，实测本机解析到
+  `192.168.137.50`，Redis 连接被对端关闭）。
 
 访问入口：HTTP `http://<服务器IP>:18180`、gRPC `<服务器IP>:18151`、stats `http://<服务器IP>:8406/`。
 
@@ -308,7 +323,8 @@ docker run -d --name graph-engine-worker --restart unless-stopped \
   - 超时 → 打印 `[error] Celery broker 等待超时` **并跳过 worker**，HTTP/gRPC/HAProxy 不受影响，
     容器**不会**因此退出；此时异步作业会一直停留在 `pending`，需人工排查 Redis。
 - 排查：`docker logs graph-engine-engine-1 | grep -i celery`，或
-  `docker exec graph-engine-engine-1 sh -c 'ps aux | grep "serve worker"'`。
+  `docker top graph-engine-engine-1`（**镜像内没有 `ps`**，`ps aux` 会报 not found；需要精确匹配
+  argv 时用容器自带 python 扫 `/proc/*/cmdline`，与 `scripts/docker_smoke.sh` 步骤 7a 同款）。
 
 ## 9. 升级与回滚
 
@@ -359,7 +375,9 @@ docker compose up -d --no-build
 | --- | --- | --- |
 | 容器反复重启、日志 `[error] 引擎未在 30s 内就绪` / `引擎进程退出` | 引擎自身启动失败（依赖缺失、DB 不可写等）；入口脚本 fail-fast 是有意设计 | `docker logs graph-engine-engine-1` 看引擎 traceback；常见为 `ModuleNotFoundError: ikc_sdk`（镜像未含 `ikc-sdk-lib==0.7.0`，需重建镜像） |
 | `sqlite3.OperationalError: unable to open database file` | 宿主挂载目录不可写（容器 uid 1000） | `sudo chown -R 1000:1000 <数据目录>` |
-| 异步作业长期 `pending` | 容器内 worker 未启动（broker 不可达） | 确认宿主 Redis 监听 `0.0.0.0` 且有密码；`docker logs ... \| grep -i celery`；或改同步调用（不加 `async`） |
+| 异步作业长期 `pending` | ①容器内 worker 未启动（broker 不可达）；②镜像缺 `redis` 包（kombu redis 传输导入失败，worker 启动即崩，日志含 `'NoneType' object has no attribute 'Redis'`） | ①确认宿主 Redis 监听 `0.0.0.0` 且有密码；②确认 `requirements.txt` 为 `celery[redis]>=5.3` 并重建镜像；`docker logs ... \| grep -i celery`；也可改同步调用（不加 `async`） |
+| `POST /api/v1/graph/graphs` 返回 409 | 同一 `kbId` 已存在图谱（幂等/唯一约束，非故障） | 换 `kbId`，或先 `GET /api/v1/graph/graphs` 找到已有 `graphId` 复用 |
+| 容器内 `ps`/`netstat` 报 not found | `python:3.12-slim` 精简镜像不含 procps/net-tools | 用 `docker top <容器>`、`docker exec <容器> graph-engine --help`，或容器 python 读 `/proc` |
 | HTTP 504 / 网关超时 | HAProxy `timeout server 60s` 掐断长耗时请求 | 改用 `"async": true` + 轮询 job；或调长 `docker/haproxy.cfg` 后重建镜像 |
 | 直连 `18010` / `50051` 失败 | 引擎只监听容器回环（安全设计） | 一律经 HAProxy：`18180` / `18151` |
 | stats 401 | 账号密码不匹配 | 用 `.env` 的 `HAPROXY_STATS_USER/PASSWORD`；默认 `admin/change-me` 仅试用，启动日志会告警 |
