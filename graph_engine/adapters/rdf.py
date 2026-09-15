@@ -21,6 +21,7 @@ from __future__ import annotations
 import io
 import json
 import logging
+import time
 import urllib.parse
 from typing import Any, Iterable
 
@@ -39,6 +40,18 @@ _ENTITY_NS = "urn:ge:entity:"
 _RELATION_NS = "urn:ge:relation:"
 
 FORMATS = ("turtle", "ttl", "nt", "nq", "rdfxml")
+
+#: SPARQL 白名单：仅允许只读查询表单（写操作走应用层 build/merge/deprecate）
+ALLOWED_OPERATIONS = ("SELECT", "ASK", "CONSTRUCT", "DESCRIBE")
+
+#: 护栏默认值（service 层可经 Settings/环境变量覆盖后显式传入）
+DEFAULT_MAX_ROWS = 5000
+DEFAULT_TIMEOUT = 10.0
+
+
+def _now() -> float:
+    """单调时钟（独立函数便于测试注入）。"""
+    return time.monotonic()
 
 
 def _quote(segment: str) -> str:
@@ -159,6 +172,188 @@ def _relation_triplets(record: Any) -> list[Any]:
     return out
 
 
+# ---------- SPARQL 护栏：白名单（只读表单）+ 分页/超时预算 ----------
+
+
+def _significant_tokens(query: str) -> list[str]:
+    """SPARQL 词法切分（仅取与语法相关的 token）：
+
+    - 跳过空白与顶层注释（``#`` 到行尾，不在 IRI/字符串字面量内）；
+    - IRIREF（``<...>``）与字符串字面量整体作为一个 token，避免其内部
+      出现注释符/关键字造成误判（如 ``<urn:ge:kg#Entity>``）。
+    返回值为普通词 token（含 ``PREFIX`` 标签如 ``kg:``）。
+    """
+    tokens: list[str] = []
+    i, n = 0, len(query)
+    while i < n:
+        ch = query[i]
+        if ch in " \t\r\n\f":
+            i += 1
+            continue
+        if ch == "#":
+            while i < n and query[i] != "\n":
+                i += 1
+            continue
+        if ch in ('"', "'"):
+            quote = ch
+            if query[i : i + 3] == quote * 3:
+                i += 3
+                while i < n and query[i : i + 3] != quote * 3:
+                    i += 1
+                i += 3
+            else:
+                i += 1
+                while i < n:
+                    if query[i] == "\\":
+                        i += 2
+                        continue
+                    if query[i] == quote:
+                        i += 1
+                        break
+                    i += 1
+            tokens.append("_STR")
+            continue
+        if ch == "<":
+            end = query.find(">", i + 1)
+            head = query[i + 1 : end]
+            if end > 0 and not any(c in head for c in " \t\r\n\f"):
+                tokens.append(query[i : end + 1])
+                i = end + 1
+                continue
+            tokens.append("<")
+            i += 1
+            continue
+        j = i
+        while j < n and query[j] not in " \t\r\n\f<>'\"#,":
+            j += 1
+        tokens.append(query[i:j])
+        i = j
+    return tokens
+
+
+def _query_operation(query: str) -> str:
+    """识别查询表单关键字：跳过可选 BASE/PREFIX 声明后读取首个关键字。"""
+    tokens = _significant_tokens(str(query))
+    i, count = 0, len(tokens)
+    while i < count:
+        token = tokens[i].upper()
+        if token == "BASE":
+            i += 2  # BASE <IRI>
+        elif token == "PREFIX":
+            i += 3  # PREFIX 标签: <IRI>
+        else:
+            return token if token in ALLOWED_OPERATIONS else ""
+    return ""
+
+
+def _effective_budget(limit: int, max_rows: int) -> int:
+    """调用方 limit 与硬性上限取较小者；非法/缺省回退默认上限。"""
+    if max_rows is None or int(max_rows) <= 0:
+        max_rows = DEFAULT_MAX_ROWS
+    cap = max(1, int(max_rows))
+    if limit is not None and int(limit) > 0:
+        cap = min(cap, int(limit))
+    return max(1, cap)
+
+
+def _bounded_execute(
+    store: Any,
+    query: str,
+    *,
+    limit: int,
+    max_rows: int,
+    timeout: float,
+) -> dict[str, Any]:
+    """带白名单/行数/超时护栏执行 SPARQL，返回与 semantica execute_sparql 一致的结果形状。
+
+    - 白名单：仅 SELECT/ASK/CONSTRUCT/DESCRIBE（其余表单抛 ValueError）；
+    - 分页：结果行/三元组按预算流式截断（预算 = min(limit, max_rows)，缺省 max_rows），
+      并回传 ``rowLimit`` 与 ``truncated`` 供调用方感知；
+    - 超时：单调时钟护栏，超时抛 TimeoutError（按行检查，可被截断的查询即时中止）。
+    """
+    operation = _query_operation(query)
+    if not operation:
+        raise ValueError(
+            "SPARQL 仅支持只读查询：SELECT/ASK/CONSTRUCT/DESCRIBE"
+        )
+    budget = _effective_budget(limit, max_rows)
+    seconds = float(timeout or 0)
+    deadline = _now() + seconds if seconds > 0 else None
+
+    def _expired() -> bool:
+        return deadline is not None and _now() >= deadline
+
+    ox = store._oxigraph
+    result = store.store.query(str(query))
+    if isinstance(result, ox.QuerySolutions):
+        variables = [variable.value for variable in result.variables]
+        bindings: list[dict[str, Any]] = []
+        truncated = False
+        for solution in result:
+            if _expired():
+                raise TimeoutError(f"SPARQL 执行超时（>{seconds:g}s）")
+            if len(bindings) >= budget:
+                truncated = True
+                break
+            binding: dict[str, Any] = {}
+            for variable in variables:
+                term = solution[variable]
+                if term is not None:
+                    binding[variable] = store._term_to_binding(term)
+            bindings.append(binding)
+        if _expired():
+            raise TimeoutError(f"SPARQL 执行超时（>{seconds:g}s）")
+        return {
+            "success": True,
+            "bindings": bindings,
+            "variables": variables,
+            "metadata": {"query": query},
+            "rowLimit": budget,
+            "truncated": truncated,
+        }
+    if isinstance(result, ox.QueryBoolean):
+        if _expired():
+            raise TimeoutError(f"SPARQL 执行超时（>{seconds:g}s）")
+        value = bool(result)
+        if _expired():
+            raise TimeoutError(f"SPARQL 执行超时（>{seconds:g}s）")
+        return {
+            "success": True,
+            "bindings": [],
+            "variables": [],
+            "metadata": {"query": query, "boolean": value},
+        }
+    if isinstance(result, ox.QueryTriples):
+        triples: list[tuple[str, str, str, dict[str, Any]]] = []
+        truncated = False
+        for triple in result:
+            if _expired():
+                raise TimeoutError(f"SPARQL 执行超时（>{seconds:g}s）")
+            if len(triples) >= budget:
+                truncated = True
+                break
+            triples.append(
+                (
+                    store._term_value(triple.subject),
+                    store._term_value(triple.predicate),
+                    store._term_value(triple.object),
+                    store._literal_metadata(triple.object),
+                )
+            )
+        if _expired():
+            raise TimeoutError(f"SPARQL 执行超时（>{seconds:g}s）")
+        return {
+            "success": True,
+            "bindings": [],
+            "variables": [],
+            "triples": triples,
+            "metadata": {"query": query, "result_format": "construct"},
+            "rowLimit": budget,
+            "truncated": truncated,
+        }
+    raise RuntimeError(f"Unsupported Oxigraph query result: {type(result).__name__}")
+
+
 def build_view(graph_id_value: str, entities: Iterable[Any], relations: Iterable[Any]) -> Any:
     """活动记录 → 内存 OxigraphStore 视图（图内实体/关系导入为 RDF 三元组）。"""
     if not rdf_available():
@@ -181,10 +376,25 @@ def run_sparql(
     entities: Iterable[Any],
     relations: Iterable[Any],
     query: str,
+    *,
+    limit: int = 0,
+    max_rows: int = DEFAULT_MAX_ROWS,
+    timeout: float = DEFAULT_TIMEOUT,
 ) -> dict[str, Any]:
-    """执行 SPARQL 查询，返回 OxigraphStore 的 bindings/boolean/triples 结果形状。"""
+    """执行 SPARQL 查询（白名单 + 分页/超时护栏），返回 bindings/boolean/triples 结果形状。
+
+    ``limit`` 为调用方行数限制（0 表示不限制、回落 ``max_rows`` 硬性上限）；
+    ``timeout`` 秒数护栏（<=0 关闭超时检查）；执行期按行检查，超时即在下一
+    行中止（视图构建为一次性 Python 映射，不在此护栏内）。
+    """
     store = build_view(graph_id_value, entities, relations)
-    return store.execute_sparql(str(query))
+    return _bounded_execute(
+        store,
+        str(query),
+        limit=limit,
+        max_rows=max_rows,
+        timeout=timeout,
+    )
 
 
 def _format_object(fmt: str) -> Any:

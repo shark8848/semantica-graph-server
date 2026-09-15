@@ -4,6 +4,7 @@
 #           GRAPH_ENGINE_GRPC_HOST / GRAPH_ENGINE_GRPC_PORT /
 #           GRAPH_ENGINE_CELERY_BROKER / GRAPH_ENGINE_CELERY_BACKEND /
 #           GRAPH_ENGINE_MCP_TRANSPORT / GRAPH_ENGINE_LOG_LEVEL /
+#           GRAPH_ENGINE_SPARQL_TIMEOUT / GRAPH_ENGINE_SPARQL_MAX_ROWS /
 #           GRAPH_ENGINE_SEMANTICA（0 关闭 semantica 集成）
 
 data_dir: data
@@ -19,5 +20,9 @@ celery:
   backend: redis://localhost:6379/0
 mcp:
   transport: stdio
+sparql:
+  # RDF/SPARQL 视图护栏：白名单仅允许 SELECT/ASK/CONSTRUCT/DESCRIBE
+  timeout: 10      # 单次查询超时（秒；0 关闭超时检查）
+  max_rows: 5000   # 单次查询返回行数/三元组上限（调用方 limit 受此夹紧）
 semantica:
   enabled: true

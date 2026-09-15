@@ -126,6 +126,72 @@ def test_sparql_limit_and_errors(svc):
         svc.sparql("graph_nope", query="SELECT ?e WHERE { ?s ?p ?o }")
 
 
+# ---------- SPARQL 护栏：白名单 / 分页 / 超时 ----------
+
+
+def test_sparql_whitelist_rejects_non_readonly(svc):
+    gid = _build_working_graph(svc)
+    for query in (
+        "INSERT DATA { <urn:a> <urn:b> <urn:c> }",
+        "DELETE WHERE { ?s ?p ?o }",
+        "CLEAR ALL",
+        "BASE <urn:ge:kg#> INSERT DATA { <urn:a> <urn:b> <urn:c> }",
+    ):
+        with pytest.raises(InvalidParamsError) as exc:
+            svc.sparql(gid, query=query)
+        assert exc.value.field == "query"
+
+
+def test_sparql_allows_comments_and_prologue(svc):
+    gid = _build_working_graph(svc)
+    out = svc.sparql(
+        gid,
+        query="# 图内实体清单\nPREFIX kg: <urn:ge:kg#>\nSELECT ?e WHERE { ?e a kg:Entity }",
+    )
+    assert len(out["bindings"]) == 2
+    # 白名单识别不得被字符串字面量内的关键字/注释符干扰
+    quoted = svc.sparql(
+        gid,
+        query='SELECT ?e WHERE { ?e <urn:ge:kg#name> "SELECT INSERT#x" }',
+    )
+    assert quoted["bindings"] == []
+
+
+def test_sparql_default_row_cap_and_clamping(svc, monkeypatch):
+    gid = _create(svc)["graphId"]
+    svc.build_from_records(
+        gid,
+        entities=[{"name": f"n{i}", "type": "person", "docId": "d"} for i in range(30)],
+    )
+    monkeypatch.setenv("GRAPH_ENGINE_SPARQL_MAX_ROWS", "5")
+    out = svc.sparql(gid, query="SELECT ?e WHERE { ?e a <urn:ge:kg#Entity> }")
+    assert len(out["bindings"]) == 5
+    assert out["truncated"] is True
+    assert out["rowLimit"] == 5
+    # 调用方 limit 超过硬性上限时按上限夹紧并标记截断
+    clamped = svc.sparql(gid, query="SELECT ?e WHERE { ?e a <urn:ge:kg#Entity> }", limit=10)
+    assert len(clamped["bindings"]) == 5
+    assert clamped["truncated"] is True
+
+
+def test_sparql_construct_row_cap(svc, monkeypatch):
+    gid = _build_working_graph(svc)
+    monkeypatch.setenv("GRAPH_ENGINE_SPARQL_MAX_ROWS", "2")
+    out = svc.sparql(gid, query="CONSTRUCT { ?s ?p ?o } WHERE { ?s ?p ?o }")
+    assert len(out["triples"]) == 2
+    assert out["truncated"] is True
+
+
+def test_sparql_timeout_guard(svc, monkeypatch):
+    import graph_engine.adapters.rdf as rdf_adapter
+
+    gid = _build_working_graph(svc)
+    monkeypatch.setattr(rdf_adapter, "_now", lambda: 1e18)
+    with pytest.raises(InvalidParamsError) as exc:
+        svc.sparql(gid, query="SELECT ?e WHERE { ?e a <urn:ge:kg#Entity> }")
+    assert "超时" in exc.value.reason
+
+
 # ---------- LLM 建图增强 ----------
 
 

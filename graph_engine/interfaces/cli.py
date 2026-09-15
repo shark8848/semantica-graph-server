@@ -269,7 +269,7 @@ def export(graph_id: str = typer.Argument(...), format: str = typer.Option("json
 def sparql(
     graph_id: str = typer.Argument(...),
     query: str = typer.Option("", "--query", help="SPARQL 查询语句（SELECT/ASK/CONSTRUCT/DESCRIBE）"),
-    limit: int = typer.Option(0, "--limit", help="SELECT 结果截断行数（0 不截断）"),
+    limit: int = typer.Option(0, "--limit", help="结果截断行数（0 为默认上限，可经 GRAPH_ENGINE_SPARQL_MAX_ROWS 调整）"),
 ) -> None:
     """SPARQL 查询当前图（RDF 视图，需 pyoxigraph）。"""
     try:

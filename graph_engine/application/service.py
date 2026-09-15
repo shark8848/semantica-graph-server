@@ -9,6 +9,7 @@ import uuid
 from typing import Any
 
 from .. import adapters
+from ..config import Settings
 from ..adapters.retrieval import RetrievalAdapter
 from ..domain.ids import entity_id, graph_id, normalize_name, relation_id
 from ..domain.models import EntityRecord, GraphMeta, RelationRecord
@@ -422,7 +423,13 @@ class GraphEngineService:
         """SPARQL 查询当前图（活动记录实时构建内存 Oxigraph 视图）。
 
         pyoxigraph / semantica oxigraph store 不可用时抛 200001（字段 query）；
-        SPARQL 语法/执行错误同样收敛为 200001，便于调用方按字段纠错。
+        SPARQL 语法/执行错误、非只读表单（白名单外）、超时同样收敛为
+        200001（字段 query），便于调用方按字段纠错。
+
+        护栏：白名单仅允许 SELECT/ASK/CONSTRUCT/DESCRIBE；结果按
+        ``min(limit, GRAPH_ENGINE_SPARQL_MAX_ROWS)`` 分页截断（limit<=0 走
+        默认上限），查询超时（``GRAPH_ENGINE_SPARQL_TIMEOUT`` 秒，0 关闭）
+        即时中止；响应含 ``rowLimit``/``truncated`` 供调用方感知分页。
         """
         self._require_graph(graph_id_value)
         q = str(query or "").strip()
@@ -436,13 +443,19 @@ class GraphEngineService:
             )
         entities = self.store.list_entities(graph_id_value)
         relations = self.store.list_relations(graph_id_value)
+        settings = Settings()
         try:
-            result = adapters.run_sparql(graph_id_value, entities, relations, q)
+            result = adapters.run_sparql(
+                graph_id_value,
+                entities,
+                relations,
+                q,
+                limit=limit,
+                max_rows=settings.sparql_max_rows,
+                timeout=settings.sparql_timeout,
+            )
         except Exception as exc:
             raise InvalidParamsError("SPARQL 执行失败", field="query", reason=str(exc)) from exc
-        if limit and int(limit) > 0:
-            result = dict(result)
-            result["bindings"] = list(result.get("bindings", []))[: int(limit)]
         return {"graphId": graph_id_value, "query": q, **result}
 
     # ---------- 语义检索（骨架：真实语义链待依赖修复后激活） ----------

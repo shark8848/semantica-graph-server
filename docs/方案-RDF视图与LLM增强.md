@@ -1,8 +1,10 @@
 # 方案：OxigraphStore RDF/SPARQL 视图 + LLM 建图增强
 
 > 对应 `docs/解决方案.md` §7「后续演进」条目落地（2026-09-07，MVP 阶段）。
-> 状态：核心能力 + 五面接口 + 单测已落地（`pytest tests` 36 passed）；
-> 真实 LLM provider 出网增强、镜像内 `pyoxigraph` 依赖确认列为待人工/后续项。
+> 状态：核心能力 + 五面接口 + SPARQL 护栏（白名单/超时/分页）+ 单测已落地
+> （`pytest tests` 41 passed）；`pyoxigraph` 依赖已在 requirements/pyproject
+> 经 `semantica[tripletstore-oxigraph]` 声明；真实 LLM provider 出网验收、
+> 镜像构建复验列为待人工/后续项。
 
 ## 1. 目标
 
@@ -44,6 +46,17 @@ IRI 由稳定 ID 派生、跨重建稳定，与 `docs/解决方案.md` 稳定 ID
 错误语义：RDF/SPARQL 依赖缺失、SPARQL 空查询/语法错误均收敛为 `200001`（field
 `format`/`query`）；图不存在仍 `200404`。
 
+SPARQL 护栏（只读安全，2026-09-08 增补）：
+- **白名单**：仅允许 `SELECT/ASK/CONSTRUCT/DESCRIBE` 只读查询表单；写类表单
+  （`INSERT/DELETE/LOAD/CLEAR/...`）一律拒绝为 `200001`（field `query`）；
+  识别时跳过注释与 `BASE/PREFIX` 声明，字符串字面量内的关键字不干扰判定。
+- **超时**：查询执行期按行做墙钟检查（默认 `10s`，`GRAPH_ENGINE_SPARQL_TIMEOUT`
+  可调，`0` 关闭），超时即时中止并收敛 `200001`；实时视图构建的一次性映射
+  不设中断点，构建完成后下一行检查即生效。
+- **分页**：结果行/三元组按 `min(limit, GRAPH_ENGINE_SPARQL_MAX_ROWS)`（默认
+  上限 `5000`）流式截断，`limit<=0` 走默认上限；响应附 `rowLimit`/`truncated`
+  供调用方感知（ASK 布尔结果无行数概念，不附加）。
+
 ## 4. LLM 增强配置与降级
 
 - 入口：五面 build 接口透传 `llm`（HTTP `payload.llm`、gRPC/MCP `llm`、CLI `--llm`、
@@ -60,7 +73,9 @@ IRI 由稳定 ID 派生、跨重建稳定，与 `docs/解决方案.md` 稳定 ID
 ## 5. 依赖与可用性
 
 - RDF/SPARQL 需要 `pyoxigraph`（本开发 venv 已具备；部署安装方式：
-  `pip install "semantica[tripletstore-oxigraph]"`）。
+  `pip install "semantica[tripletstore-oxigraph]"`）；该依赖已写入
+  `requirements.txt`/`pyproject.toml`（`semantica[tripletstore-oxigraph]==0.6.5`），
+  Docker 构建会自动拉入，镜像内复验列为待执行项。
 - LLM provider 包（openai/google-genai/anthropic/groq/ollama/transformers）本 venv
   已具备；镜像 core-only 变体不含 semantica 时两能力自动降级，不阻塞核心服务。
 - 守卫探测结果进程内缓存；导入失败只记 warning。
@@ -68,11 +83,12 @@ IRI 由稳定 ID 派生、跨重建稳定，与 `docs/解决方案.md` 稳定 ID
 ## 6. 测试
 
 - `tests/test_rdf_llm.py`：RDF 导出格式/缺失图、SPARQL SELECT/ASK/CONSTRUCT/
-  limit/错误码、LLM 门控与合并语义，以及 HTTP/gRPC/MCP/CLI 四面对 `sparql` 的接线。
-- 回归：`.venv/bin/python -m pytest tests -q`（36 passed）。
+  limit/错误码/护栏（白名单、分页截断、超时）、LLM 门控与合并语义，
+  以及 HTTP/gRPC/MCP/CLI 四面对 `sparql` 的接线。
+- 回归：`.venv/bin/python -m pytest tests -q`（41 passed）。
 
 ## 7. 待人工/后续项
 
 - 出网真实 LLM 增强验证（需要 provider API key）。
-- 镜像构建时确认 `pyoxigraph` 进入 semantica 变体（Dockerfile/requirements 增补）。
-- SPARQL 白名单/超时/分页护栏（当前仅 SELECT `limit` 截断）；持久化 RDF 视图（增量索引）暂不做。
+- 镜像构建复验（`pyoxigraph` 依赖声明已落地，待 `build_docker.sh` + 冒烟确认）。
+- 持久化 RDF 视图（增量索引）暂不做。
