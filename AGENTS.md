@@ -57,8 +57,9 @@ Semantica Graph Engine：把已安装的 `semantica`（0.6.5）封装为对外�
   （`/tmp` 重启会清空；`scripts/sync-github-projects.sh` 依次回退读取，同一令牌可复用于其它项目）；
   **两个位置均禁止入库**；fine-grained PAT 无法访问用户级 Projects v2。
 - 最近同步：2026-09-15（`bash scripts/sync-github-projects.sh docs/project-board.tsv` →
-  `ok=15 updated=8 fail=0`，回读 total=16，其中含 1 条历史重命名遗留的重复旧条目
-  「Celery worker 接入真实 Redis（容器内启用）」，待清理）。
+  `ok=15 updated=8 fail=0`）。同日用 `deleteProjectV2Item` 清掉历史重命名遗留的重复旧条目
+  「Celery worker 接入真实 Redis（容器内启用）」，回读 `totalCount=15`、节点 15、无归档，
+  与 `docs/project-board.tsv` 逐条一致（僵尸条目不再出现，无需再手工对账）。
 - 条目清单（契约的一部分）：`docs/project-board.tsv`，格式 `标题<TAB>状态<TAB>优先级`；
   状态 ∈ `未开始|进行中|已完成`（看板选项为英文，按别名映射 Backlog / In progress / Done），
   优先级 ∈ `P0|P1|P2`（可空）。
