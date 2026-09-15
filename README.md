@@ -36,7 +36,8 @@ graph-engine graph export graph_xxx
 
 ## Python SDK
 
-应用侧集成推荐直接用 SDK（`sdk/python`，独立打包 `semantica-graph-sdk` v0.1.0，仅依赖 `httpx`）：
+应用侧集成推荐直接用 SDK（`sdk/python`，独立打包 `semantica-graph-sdk` v0.1.0，依赖 `httpx` + `ikc-sdk-lib`；
+已发布 PyPI：`pip install "semantica-graph-sdk==0.1.0"`）：
 
 ```python
 from semantica_graph_sdk import GraphEngineClient
