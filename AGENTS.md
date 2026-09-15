@@ -2,7 +2,8 @@
 
 Semantica Graph Engine：把已安装的 `semantica`（0.6.5）封装为对外完整服务的图引擎，统一提供
 **HTTP / gRPC / Celery / MCP / CLI** 五类接口；open-ikc 的图谱服务能力可消费本引擎。
-权威设计文档：`docs/解决方案.md`；gRPC 契约：`proto/graph/v1/graph.proto`。
+权威设计文档：`docs/解决方案.md`；gRPC 契约：`proto/graph/v1/graph.proto`；
+部署：`docs/本地Docker部署手册.md`（本地构建/启动/离线迁移/运维），速查版 `docs/Docker部署与HAProxy.md`。
 
 ## Project Structure & Module Organization
 

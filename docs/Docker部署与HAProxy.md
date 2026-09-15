@@ -3,6 +3,9 @@
 > 单镜像（`graph-engine:0.1.0`）同时包含图引擎（HTTP / gRPC / Celery / MCP / CLI）与 HAProxy 代理层；
 > HAProxy 为对外唯一入口，反向代理内部 HTTP 与 gRPC 服务。
 > 配套脚本：`scripts/build_docker.sh`（构建）、`scripts/docker_smoke.sh`（冒烟）、`docker-compose.yml`（编排）、`docker/.env.example`（生产模板）。
+>
+> 完整部署流程（本机构建 → 启动验证 → 离线导出/导入 → 非 compose `docker run` → 升级回滚 → 排障）见
+> `docs/本地Docker部署手册.md`；本文为其速查版（拓扑/构建/环境变量/验证示例）。
 
 ## 1. 拓扑与端口
 

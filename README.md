@@ -75,6 +75,8 @@ with GraphEngineClient("http://127.0.0.1:18010") as client:
 
 - 构建统一镜像（图引擎 + HAProxy 代理层同容器）：`bash scripts/build_docker.sh`
 - 启动：`docker compose up -d`（HAProxy 对外入口 HTTP `18180` / gRPC `18151` / stats `8406`；compose 栈默认
-  附带内置 Redis 供 Celery worker 使用，`async=true` 建图由 worker 异步执行，`GET /api/v1/graph/jobs/{id}` 轮询）
-- 详细说明：`docs/Docker部署与HAProxy.md`；冒烟验证：`bash scripts/docker_smoke.sh`（HTTP/gRPC/stats/回环隔离/
-  非 root/Celery 端到端/MCP 与 CLI 八项）
+  启用容器内 Celery worker，broker/backend 指向**宿主本地 Redis**，`async=true` 建图由 worker 异步执行，
+  `GET /api/v1/graph/jobs/{id}` 轮询）
+- 部署手册（本机构建 → 启动验证 → 离线镜像导出/导入 → 非 compose `docker run` → 升级回滚 → 排障）：
+  `docs/本地Docker部署手册.md`；速查版：`docs/Docker部署与HAProxy.md`
+- 冒烟验证：`bash scripts/docker_smoke.sh`（HTTP/gRPC/stats/回环隔离/非 root/Celery 端到端/MCP 与 CLI 八项）

@@ -9,3 +9,8 @@ data/
 logs/
 *.log
 docker/images/*.tar
+# 本地/生产 env 文件（含 Redis 密码、HAProxy stats 凭据）：只保留 docker/.env.example 模板
+.env
+docker/.env
+# 离线构建用预置 wheel（见 docs/本地Docker部署手册.md 2.3）
+docker/wheels/
