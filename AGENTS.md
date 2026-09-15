@@ -60,6 +60,19 @@ Semantica Graph Engine：把已安装的 `semantica`（0.6.5）封装为对外�
 - 同步：`bash scripts/sync-github-projects.sh docs/project-board.tsv`（按标题幂等 upsert，缺则创建、存在只更新）。
 - 流程：改 TSV → 同步 → 将 TSV 与脚本/契约一起提交。
 
+## 发布契约（PyPI，只发布 SDK）
+
+- **只发布 SDK 包**：`sdk/python`（dist 名 `semantica-graph-sdk`）；服务端包 `graph-engine` 不发布到 PyPI
+  （以 wheel/镜像分发，见 §Build, Test, and Development Commands 与 `docs/deploy*`）。
+- **凭据**：`/home/sharkyai/PyUploadX/config/pypi.env`（变量 `PYUPX_PYPI_USERNAME` / `PYUPX_PYPI_TOKEN` /
+  `PYUPX_PYPI_REPOSITORY_URL`，PyPI 账号级 token；页面 https://upload.pypi.org/legacy/）。**凭据禁止入库**，
+  命令中通过 `source` 注入环境变量、不回显。
+- **发布流程**：`python -m build`（wheel + sdist）→ `twine upload`；上传前必须跑
+  `.venv/bin/python -m pytest tests sdk/python/tests -q`，并做 **sdist 解包重建 wheel** 校验
+  （确认重建产物仍含完整包，避免 ikc-core-sdk 曾出现的 `force-include` 失效问题）。
+- **发布后**：用全新 venv `pip install "semantica-graph-sdk==<version>"` 做端到端验收，并同步本文档、
+  `sdk/python/README.md` 与 `docs/project-board.tsv` 的版本/状态记录。
+
 ## Push / Remote Contract
 
 - `origin`：`git@github.com:shark8848/semantica-graph-server.git`（已验证 SSH 22/443 均连通）。

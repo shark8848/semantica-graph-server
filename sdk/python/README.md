@@ -12,7 +12,7 @@ DTO 经 sdk 模型校验后序列化：分页壳含 `totalPages`；作业对象 
 ## 安装
 
 ```bash
-pip install semantica-graph-sdk
+pip install "semantica-graph-sdk==0.1.0"     # PyPI: https://pypi.org/project/semantica-graph-sdk/
 ```
 
 本地开发调试可 `pip install sdk/python`，测试依赖 `pytest`（`pip install "sdk/python[dev]"`）。

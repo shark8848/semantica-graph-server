@@ -14,5 +14,5 @@ Python SDK 设计与实现（semantica-graph-sdk：同步/异步客户端 + 模�
 HTTP 面补齐语义检索/索引状态端点（与 MCP/application 层对齐）	已完成	P1
 修复 /analytics JSON 序列化缺陷（GraphAnalyzer frozenset → list，回归单测）	已完成	P1
 SDK 真实服务端到端联调冒烟（examples/quickstart + async_quickstart）	已完成	P2
-SDK 独立发布到 PyPI（semantica-graph-sdk 0.1.0）	未开始	P2
+SDK 独立发布到 PyPI（semantica-graph-sdk 0.1.0）	已完成	P2
 图谱资产模型归位：消费 ikc-sdk-lib 0.7.0（G8 形状 / G2 traceId / G3 状态映射）	已完成	P1
