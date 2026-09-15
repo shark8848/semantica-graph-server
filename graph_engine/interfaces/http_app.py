@@ -225,6 +225,21 @@ def create_app(service: Any | None = None) -> FastAPI:
             ),
         )
 
+    @app.get("/api/v1/graph/graphs/{graph_id}/search")
+    def graph_search(
+        request: Request,
+        graph_id: str,
+        query: str = Query(default=""),
+        topK: int = Query(default=10),
+    ) -> JSONResponse:
+        tid = _trace(request)
+        return _handle(tid, lambda: svc.semantic_search(graph_id, query=query, top_k=topK))
+
+    @app.get("/api/v1/graph/graphs/{graph_id}/index-status")
+    def graph_index_status(request: Request, graph_id: str) -> JSONResponse:
+        tid = _trace(request)
+        return _handle(tid, lambda: svc.index_status(graph_id))
+
     # ---------- jobs ----------
 
     @app.post("/api/v1/graph/jobs/{job_id}/run")

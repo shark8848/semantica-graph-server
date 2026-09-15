@@ -155,6 +155,36 @@ def test_build_from_text(svc):
     assert "Alice" in names and "Acme" in names
 
 
+def test_analytics_json_serializable(svc):
+    """回归：GraphAnalyzer 结果含 frozenset，analytics 必须 JSON 可序列化。"""
+    gid = _create(svc, kb_id="kb_analytics")["graphId"]
+    svc.build_from_records(
+        gid,
+        entities=[
+            {"name": "Alice", "type": "person", "docId": "doc1"},
+            {"name": "Acme", "type": "org", "docId": "doc1"},
+        ],
+        relations=[
+            {
+                "type": "works_at",
+                "source": entity_id(gid, "person", "alice"),
+                "target": entity_id(gid, "org", "acme"),
+                "docId": "doc1",
+            }
+        ],
+        doc_id="doc1",
+    )
+    analytics = svc.analytics(gid)
+    json.dumps(analytics, ensure_ascii=False)  # 不得抛 TypeError
+    assert isinstance(analytics["analysis"], dict)
+    communities = analytics["analysis"].get("communities", {}).get("communities")
+    if communities is not None:
+        assert isinstance(communities, list)
+        assert all(isinstance(item, list) for item in communities)
+    with pytest.raises(NotFoundError):
+        svc.analytics("不存在")
+
+
 # ---------- HTTP ----------
 
 

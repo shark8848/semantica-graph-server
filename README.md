@@ -10,7 +10,7 @@
 ## 快速开始
 
 ```bash
-# 安装（复用当前 venv，无新增外部依赖）
+# 安装（复用当前 venv 已装包；RDF/SPARQL 依赖 pyoxigraph 已随 semantica extra 就绪）
 .venv/bin/pip install -e . --no-build-isolation
 
 # 启动 HTTP 服务（默认 18010）
@@ -33,6 +33,24 @@ graph-engine graph export graph_xxx
 | Celery | `graph-engine serve worker` | 任务 `graph_engine.build / merge / deprecate_doc / export`，broker 默认 redis |
 | MCP | `graph-engine serve mcp` | stdio JSON-RPC，`initialize / tools/list / tools/call` |
 | CLI | `graph-engine ...` | typer，退出码 0/1/6 约定同 open-ikc `ikc` |
+
+## Python SDK
+
+应用侧集成推荐直接用 SDK（`sdk/python`，独立打包 `semantica-graph-sdk` v0.1.0，仅依赖 `httpx`）：
+
+```python
+from semantica_graph_sdk import GraphEngineClient
+
+with GraphEngineClient("http://127.0.0.1:18010") as client:
+    graph = client.graphs.create(kbId="kb_demo", name="演示图")
+    client.graphs.build(graph.graphId, docId="d1", entities=[{"name": "Alice", "type": "person"}])
+    print(client.graphs.stat(graph.graphId).nodeCount)
+```
+
+- 设计文档：`docs/独立承载服务与SDK集成设计.md`；使用说明：`sdk/python/README.md`
+- 覆盖 `graphs`（CRUD/建图合并/统计/查询/路径/分析/导出/SPARQL/检索）与 `jobs`（run/get/list/wait），
+  同步 + 异步双客户端，统一 envelope/错误码/traceId 语义。
+- 自测：`cd sdk/python && PYTHONPATH=. python -m pytest tests -q`；联调：`python sdk/python/examples/quickstart.py`
 
 ## 核心设计
 

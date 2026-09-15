@@ -149,3 +149,50 @@ def test_http_async_graph_not_found(client):
     )
     assert resp.status_code == 404
     assert resp.json()["errCode"] == "200404"
+
+
+def test_http_semantic_search(client):
+    """语义检索端点：图存在即返回 envelope；检索链不可用时为降级结果（不报错）。"""
+    http, _ = client
+    resp = http.post(
+        "/api/v1/graph/graphs",
+        json={"name": "HTTP 检索图", "kbId": "kb_search", "graphSchema": SCHEMA},
+    )
+    gid = resp.json()["data"]["graphId"]
+
+    resp = http.get(f"/api/v1/graph/graphs/{gid}/search", params={"query": "Alice 在哪工作", "topK": 5})
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["errCode"] == "0"
+    data = body["data"]
+    assert data["graphId"] == gid
+    assert data["query"] == "Alice 在哪工作"
+    assert data["topK"] == 5
+    assert isinstance(data["semantica"], bool)
+    assert isinstance(data["hits"], list)
+
+
+def test_http_index_status(client):
+    """索引状态端点：返回 graphId + semantica 可用标记（降级不报错）。"""
+    http, _ = client
+    resp = http.post(
+        "/api/v1/graph/graphs",
+        json={"name": "HTTP 索引状态图", "kbId": "kb_index", "graphSchema": SCHEMA},
+    )
+    gid = resp.json()["data"]["graphId"]
+
+    resp = http.get(f"/api/v1/graph/graphs/{gid}/index-status")
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["errCode"] == "0"
+    assert body["data"]["graphId"] == gid
+    assert isinstance(body["data"]["semantica"], bool)
+
+
+def test_http_search_index_status_graph_not_found(client):
+    """不存在图谱检索 / 索引状态 → HTTP 404 + errCode=200404。"""
+    http, _ = client
+    for path in ("/api/v1/graph/graphs/nope/search?query=x", "/api/v1/graph/graphs/nope/index-status"):
+        resp = http.get(path)
+        assert resp.status_code == 404
+        assert resp.json()["errCode"] == "200404"

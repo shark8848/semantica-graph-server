@@ -74,6 +74,29 @@ def build_kg(
     return result
 
 
+def _jsonable(value: Any) -> Any:
+    """递归归一化为 JSON 可序列化结构（semantica 结果可能含 frozenset/numpy 标量）。"""
+    if value is None or isinstance(value, (bool, int, float, str)):
+        return value
+    if isinstance(value, dict):
+        return {key: _jsonable(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_jsonable(item) for item in value]
+    if isinstance(value, (set, frozenset)):
+        items = [_jsonable(item) for item in value]
+        try:
+            return sorted(items)
+        except TypeError:  # 元素类型混合不可比较，退化为按 repr 排序保证确定性
+            return sorted(items, key=repr)
+    to_item = getattr(value, "item", None)
+    if callable(to_item):
+        try:
+            return _jsonable(to_item())
+        except Exception:
+            return str(value)
+    return str(value)
+
+
 def analyze_graph(entities: list[Any], relationships: list[Any]) -> dict[str, Any]:
     """调用 semantica GraphAnalyzer 输出图结构分析（度数/连通分量等）。"""
     if not semantica_available():
@@ -87,7 +110,7 @@ def analyze_graph(entities: list[Any], relationships: list[Any]) -> dict[str, An
             relationships=[_to_relation_dict(item) for item in relationships],
         )
         analyzer = GraphAnalyzer()
-        return analyzer.analyze_graph(kg)
+        return _jsonable(analyzer.analyze_graph(kg))
     except Exception as exc:  # pragma: no cover
         logger.warning("GraphAnalyzer 分析失败：%s", exc)
         return {"semantica": False, "error": str(exc)}
