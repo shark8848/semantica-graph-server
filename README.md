@@ -55,6 +55,9 @@ with GraphEngineClient("http://127.0.0.1:18010") as client:
 ## 核心设计
 
 - 分层：`interfaces`（五面）→ `application.GraphEngineService`（用例）→ `domain`（稳定 ID/schema/合并规则）→ `adapters`（semantica + SQLite）。
+- 线缆形状单一来源：`ikc-sdk-lib==0.7.0`（`ikc_sdk.core.models.graph` 图谱资产 / `core.api.graph.*` G 域接口 /
+  `core.trace` 23 位 traceId / `EngineJobView` 作业视图与状态映射）——引擎只做「行 → 视图」映射与校验，
+  分页壳含 `totalPages`，作业视图保留本地态 `status` 并给出外态 `taskStatus`（契约测试守护）。
 - 五面共用同一 application 层，语义一致；`async=true` 建图登记 job 后由 Celery worker 执行。
 - 稳定 ID 与增量合并/证据/置信度/schema 覆盖率语义**兼容 open-ikc 现有实现**，可零成本替换其进程内 `GraphStore`。
 - semantica 集成采用守卫式导入：`GraphBuilder` 建图、`GraphAnalyzer` 分析、`export` 导出；`semantica.context/vector_store` 当前因 pinecone 桩包冲突不可用，引擎不依赖该链路（修复路径见 `docs/方案-原生MCP检索接入.md`：先卸载改名桩 `pinecone-client`，再装新发布名 `pinecone>=6,<7`）。

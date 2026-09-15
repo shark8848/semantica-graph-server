@@ -3,6 +3,44 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
+from pydantic import BaseModel
+
+from ikc_sdk.core.api.graph.export import GraphExportResponse
+from ikc_sdk.core.api.graph.neighbors import GraphNeighborsResponse
+from ikc_sdk.core.api.graph.paths import GraphPathsResponse
+from ikc_sdk.core.api.graph.stat import GraphStatResponse
+from ikc_sdk.core.enums import TaskStatus
+from ikc_sdk.core.models.graph import (
+    EntityView as _SdkEntityView,
+    GraphMeta as _SdkGraphMeta,
+    GraphPageResult,
+    GraphPath as _SdkGraphPath,
+    RelationView as _SdkRelationView,
+    SchemaCoverage as _SdkSchemaCoverage,
+    TypeCount as _SdkTypeCount,
+)
+from ikc_sdk.core.models.task import EngineJobView, engine_status_to_task_status
+
+# 线缆形状单一来源 = ikc-sdk-lib 图谱资产/接口模型（G8 归位，0.7.0）：本模块的 dataclass 是
+# **客户端 DTO**，`from_dict()` 先经 sdk 模型校验再落属性，`to_dict()` 由 sdk 模型序列化——
+# 字段增删、改名与默认值只在 sdk 契约处发生。`exclude_unset=True` 保持「只回原载荷确有字段」
+# 的既有语义（不引入 sdk 默认值），`extra` 仍原样透传未登记键。
+
+_TERMINAL_TASK_STATUSES = frozenset(
+    {
+        TaskStatus.SUCCEEDED,
+        TaskStatus.FAILED,
+        TaskStatus.PARTIAL_FAILED,
+        TaskStatus.CANCELLED,
+        TaskStatus.EXPIRED,
+    }
+)
+
+
+def _validate(model: type[BaseModel], payload: dict[str, Any]) -> dict[str, Any]:
+    """经 sdk 模型校验后返回线缆 dict（形状单一来源；不注入模型默认值）。"""
+    return model.model_validate(payload).model_dump(exclude_unset=True)
+
 
 def _extra(data: dict[str, Any], known: set[str]) -> dict[str, Any]:
     return {key: value for key, value in data.items() if key not in known}
@@ -29,16 +67,29 @@ class GraphMeta:
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> "GraphMeta":
+        model = _SdkGraphMeta.model_validate(
+            {
+                "graphId": str(data.get("graphId", "")),
+                "name": str(data.get("name", "")),
+                "kbId": str(data.get("kbId", "")),
+                "tenantId": str(data.get("tenantId", "")),
+                "ownerId": str(data.get("ownerId", "")),
+                "graphSchema": dict(data.get("graphSchema") or {}),
+                "status": str(data.get("status", "active")),
+                "createdAt": str(data.get("createdAt", "")),
+                "updatedAt": str(data.get("updatedAt", "")),
+            }
+        )
         return cls(
-            graphId=str(data.get("graphId", "")),
-            name=str(data.get("name", "")),
-            kbId=str(data.get("kbId", "")),
-            tenantId=str(data.get("tenantId", "")),
-            ownerId=str(data.get("ownerId", "")),
-            graphSchema=dict(data.get("graphSchema") or {}),
-            status=str(data.get("status", "active")),
-            createdAt=str(data.get("createdAt", "")),
-            updatedAt=str(data.get("updatedAt", "")),
+            graphId=model.graphId,
+            name=model.name,
+            kbId=model.kbId,
+            tenantId=model.tenantId,
+            ownerId=model.ownerId,
+            graphSchema=model.graphSchema.model_dump(exclude_unset=True),
+            status=model.status,
+            createdAt=str(model.createdAt or ""),
+            updatedAt=str(model.updatedAt or ""),
             extra=_extra(
                 data,
                 {
@@ -57,15 +108,20 @@ class GraphMeta:
 
     def to_dict(self) -> dict[str, Any]:
         return {
-            "graphId": self.graphId,
-            "name": self.name,
-            "kbId": self.kbId,
-            "tenantId": self.tenantId,
-            "ownerId": self.ownerId,
-            "graphSchema": dict(self.graphSchema),
-            "status": self.status,
-            "createdAt": self.createdAt,
-            "updatedAt": self.updatedAt,
+            **_validate(
+                _SdkGraphMeta,
+                {
+                    "graphId": self.graphId,
+                    "name": self.name,
+                    "kbId": self.kbId,
+                    "tenantId": self.tenantId,
+                    "ownerId": self.ownerId,
+                    "graphSchema": dict(self.graphSchema),
+                    "status": self.status,
+                    "createdAt": self.createdAt,
+                    "updatedAt": self.updatedAt,
+                },
+            ),
             **self.extra,
         }
 
@@ -223,14 +279,16 @@ class TypeCount:
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> "TypeCount":
-        return cls(
-            type=str(data.get("type", "")),
-            count=int(data.get("count") or 0),
-            extra=_extra(data, {"type", "count"}),
+        model = _SdkTypeCount.model_validate(
+            {"type": str(data.get("type", "")), "count": int(data.get("count") or 0)}
         )
+        return cls(type=model.type, count=model.count, extra=_extra(data, {"type", "count"}))
 
     def to_dict(self) -> dict[str, Any]:
-        return {"type": self.type, "count": self.count, **self.extra}
+        return {
+            **_validate(_SdkTypeCount, {"type": self.type, "count": self.count}),
+            **self.extra,
+        }
 
 
 @dataclass
@@ -245,18 +303,26 @@ class SchemaCoverage:
     @classmethod
     def from_dict(cls, data: dict[str, Any] | None) -> "SchemaCoverage":
         data = dict(data or {})
+        model = _SdkSchemaCoverage.model_validate(
+            {
+                "entity": float(data.get("entity") or 0.0),
+                "relation": float(data.get("relation") or 0.0),
+                "overall": float(data.get("overall") or 0.0),
+            }
+        )
         return cls(
-            entity=float(data.get("entity") or 0.0),
-            relation=float(data.get("relation") or 0.0),
-            overall=float(data.get("overall") or 0.0),
+            entity=model.entity,
+            relation=model.relation,
+            overall=model.overall,
             extra=_extra(data, {"entity", "relation", "overall"}),
         )
 
     def to_dict(self) -> dict[str, Any]:
         return {
-            "entity": self.entity,
-            "relation": self.relation,
-            "overall": self.overall,
+            **_validate(
+                _SdkSchemaCoverage,
+                {"entity": self.entity, "relation": self.relation, "overall": self.overall},
+            ),
             **self.extra,
         }
 
@@ -276,14 +342,33 @@ class StatResult:
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> "StatResult":
+        model = GraphStatResponse.model_validate(
+            {
+                "graphId": str(data.get("graphId", "")),
+                "kbId": str(data.get("kbId", "")),
+                "nodeCount": int(data.get("nodeCount") or 0),
+                "edgeCount": int(data.get("edgeCount") or 0),
+                "entityTypes": _records(data.get("entityTypes")),
+                "relationTypes": _records(data.get("relationTypes")),
+                "schemaCoverage": dict(data.get("schemaCoverage") or {}),
+            }
+        )
         return cls(
-            graphId=str(data.get("graphId", "")),
-            kbId=str(data.get("kbId", "")),
-            nodeCount=int(data.get("nodeCount") or 0),
-            edgeCount=int(data.get("edgeCount") or 0),
-            entityTypes=[TypeCount.from_dict(item) for item in _records(data.get("entityTypes"))],
-            relationTypes=[TypeCount.from_dict(item) for item in _records(data.get("relationTypes"))],
-            schemaCoverage=SchemaCoverage.from_dict(data.get("schemaCoverage")),
+            graphId=str(model.graphId or ""),
+            kbId=model.kbId,
+            nodeCount=model.nodeCount,
+            edgeCount=model.edgeCount,
+            entityTypes=[
+                TypeCount.from_dict(item.model_dump(exclude_unset=True))
+                for item in model.entityTypes
+            ],
+            relationTypes=[
+                TypeCount.from_dict(item.model_dump(exclude_unset=True))
+                for item in model.relationTypes
+            ],
+            schemaCoverage=SchemaCoverage.from_dict(
+                model.schemaCoverage.model_dump(exclude_unset=True)
+            ),
             extra=_extra(
                 data,
                 {
@@ -300,13 +385,18 @@ class StatResult:
 
     def to_dict(self) -> dict[str, Any]:
         return {
-            "graphId": self.graphId,
-            "kbId": self.kbId,
-            "nodeCount": self.nodeCount,
-            "edgeCount": self.edgeCount,
-            "entityTypes": [item.to_dict() for item in self.entityTypes],
-            "relationTypes": [item.to_dict() for item in self.relationTypes],
-            "schemaCoverage": self.schemaCoverage.to_dict(),
+            **_validate(
+                GraphStatResponse,
+                {
+                    "graphId": self.graphId,
+                    "kbId": self.kbId,
+                    "nodeCount": self.nodeCount,
+                    "edgeCount": self.edgeCount,
+                    "entityTypes": [item.to_dict() for item in self.entityTypes],
+                    "relationTypes": [item.to_dict() for item in self.relationTypes],
+                    "schemaCoverage": self.schemaCoverage.to_dict(),
+                },
+            ),
             **self.extra,
         }
 
@@ -348,38 +438,60 @@ class Entity:
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> "Entity":
+        model = _SdkEntityView.model_validate(
+            {
+                "entityId": str(data.get("entityId", "")),
+                "graphId": str(data.get("graphId", "")),
+                "docId": str(data.get("docId", "")),
+                "type": str(data.get("type", "concept")),
+                "name": str(data.get("name", "")),
+                "normalizedName": str(data.get("normalizedName", "")),
+                "properties": dict(data.get("properties") or {}),
+                "aliases": [str(item) for item in (data.get("aliases") or [])],
+                "evidence": [dict(item) for item in _records(data.get("evidence"))],
+                "confidence": float(data.get("confidence") or 1.0),
+                "status": str(data.get("status", "active")),
+                "createdAt": str(data.get("createdAt", "")),
+                "updatedAt": str(data.get("updatedAt", "")),
+            }
+        )
         return cls(
-            entityId=str(data.get("entityId", "")),
-            graphId=str(data.get("graphId", "")),
-            docId=str(data.get("docId", "")),
-            type=str(data.get("type", "concept")),
-            name=str(data.get("name", "")),
-            normalizedName=str(data.get("normalizedName", "")),
-            properties=dict(data.get("properties") or {}),
-            aliases=[str(item) for item in (data.get("aliases") or [])],
-            evidence=[dict(item) for item in _records(data.get("evidence"))],
-            confidence=float(data.get("confidence") or 1.0),
-            status=str(data.get("status", "active")),
-            createdAt=str(data.get("createdAt", "")),
-            updatedAt=str(data.get("updatedAt", "")),
+            entityId=model.entityId,
+            graphId=model.graphId,
+            docId=model.docId,
+            type=model.type,
+            name=model.name,
+            normalizedName=model.normalizedName,
+            properties=dict(model.properties),
+            aliases=list(model.aliases),
+            evidence=[item.model_dump(exclude_unset=True) for item in model.evidence],
+            confidence=float(model.confidence),
+            status=model.status,
+            createdAt=str(model.createdAt or ""),
+            updatedAt=str(model.updatedAt or ""),
             extra=_extra(data, cls._KNOWN),
         )
 
     def to_dict(self) -> dict[str, Any]:
         return {
-            "entityId": self.entityId,
-            "graphId": self.graphId,
-            "docId": self.docId,
-            "type": self.type,
-            "name": self.name,
-            "normalizedName": self.normalizedName,
-            "properties": dict(self.properties),
-            "aliases": list(self.aliases),
-            "evidence": [dict(item) for item in self.evidence],
-            "confidence": self.confidence,
-            "status": self.status,
-            "createdAt": self.createdAt,
-            "updatedAt": self.updatedAt,
+            **_validate(
+                _SdkEntityView,
+                {
+                    "entityId": self.entityId,
+                    "graphId": self.graphId,
+                    "docId": self.docId,
+                    "type": self.type,
+                    "name": self.name,
+                    "normalizedName": self.normalizedName,
+                    "properties": dict(self.properties),
+                    "aliases": list(self.aliases),
+                    "evidence": [dict(item) for item in self.evidence],
+                    "confidence": self.confidence,
+                    "status": self.status,
+                    "createdAt": self.createdAt,
+                    "updatedAt": self.updatedAt,
+                },
+            ),
             **self.extra,
         }
 
@@ -419,36 +531,57 @@ class Relation:
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> "Relation":
+        model = _SdkRelationView.model_validate(
+            {
+                "relationId": str(data.get("relationId", "")),
+                "graphId": str(data.get("graphId", "")),
+                "docId": str(data.get("docId", "")),
+                "type": str(data.get("type", "related_to")),
+                "sourceEntityId": str(data.get("sourceEntityId", "")),
+                "targetEntityId": str(data.get("targetEntityId", "")),
+                "properties": dict(data.get("properties") or {}),
+                "evidence": [dict(item) for item in _records(data.get("evidence"))],
+                "confidence": float(data.get("confidence") or 1.0),
+                "status": str(data.get("status", "active")),
+                "createdAt": str(data.get("createdAt", "")),
+                "updatedAt": str(data.get("updatedAt", "")),
+            }
+        )
         return cls(
-            relationId=str(data.get("relationId", "")),
-            graphId=str(data.get("graphId", "")),
-            docId=str(data.get("docId", "")),
-            type=str(data.get("type", "related_to")),
-            sourceEntityId=str(data.get("sourceEntityId", "")),
-            targetEntityId=str(data.get("targetEntityId", "")),
-            properties=dict(data.get("properties") or {}),
-            evidence=[dict(item) for item in _records(data.get("evidence"))],
-            confidence=float(data.get("confidence") or 1.0),
-            status=str(data.get("status", "active")),
-            createdAt=str(data.get("createdAt", "")),
-            updatedAt=str(data.get("updatedAt", "")),
+            relationId=model.relationId,
+            graphId=model.graphId,
+            docId=model.docId,
+            type=model.type,
+            sourceEntityId=model.sourceEntityId,
+            targetEntityId=model.targetEntityId,
+            properties=dict(model.properties),
+            evidence=[item.model_dump(exclude_unset=True) for item in model.evidence],
+            confidence=float(model.confidence),
+            status=model.status,
+            createdAt=str(model.createdAt or ""),
+            updatedAt=str(model.updatedAt or ""),
             extra=_extra(data, cls._KNOWN),
         )
 
     def to_dict(self) -> dict[str, Any]:
         return {
-            "relationId": self.relationId,
-            "graphId": self.graphId,
-            "docId": self.docId,
-            "type": self.type,
-            "sourceEntityId": self.sourceEntityId,
-            "targetEntityId": self.targetEntityId,
-            "properties": dict(self.properties),
-            "evidence": [dict(item) for item in self.evidence],
-            "confidence": self.confidence,
-            "status": self.status,
-            "createdAt": self.createdAt,
-            "updatedAt": self.updatedAt,
+            **_validate(
+                _SdkRelationView,
+                {
+                    "relationId": self.relationId,
+                    "graphId": self.graphId,
+                    "docId": self.docId,
+                    "type": self.type,
+                    "sourceEntityId": self.sourceEntityId,
+                    "targetEntityId": self.targetEntityId,
+                    "properties": dict(self.properties),
+                    "evidence": [dict(item) for item in self.evidence],
+                    "confidence": self.confidence,
+                    "status": self.status,
+                    "createdAt": self.createdAt,
+                    "updatedAt": self.updatedAt,
+                },
+            ),
             **self.extra,
         }
 
@@ -461,27 +594,49 @@ class EntityListData:
     total: int = 0
     page: int = 1
     pageSize: int = 20
+    totalPages: int = 0
     items: list[Entity] = field(default_factory=list)
     extra: dict[str, Any] = field(default_factory=dict)
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> "EntityListData":
+        page, page_size = int(data.get("page") or 1), int(data.get("pageSize") or 20)
+        total = int(data.get("total") or 0)
+        model = GraphPageResult[_SdkEntityView].model_validate(
+            {
+                "graphId": str(data.get("graphId", "")),
+                "total": total,
+                "page": page,
+                "pageSize": page_size,
+                "totalPages": int(data.get("totalPages") or 0),
+                "items": _records(data.get("items")),
+            }
+        )
         return cls(
-            graphId=str(data.get("graphId", "")),
-            total=int(data.get("total") or 0),
-            page=int(data.get("page") or 1),
-            pageSize=int(data.get("pageSize") or 20),
-            items=[Entity.from_dict(item) for item in _records(data.get("items"))],
-            extra=_extra(data, {"graphId", "total", "page", "pageSize", "items"}),
+            graphId=str(model.graphId or ""),
+            total=model.total,
+            page=model.page,
+            pageSize=model.pageSize,
+            totalPages=model.totalPages,
+            items=[Entity.from_dict(item.model_dump(exclude_unset=True)) for item in model.items],
+            extra=_extra(
+                data, {"graphId", "total", "page", "pageSize", "totalPages", "items"}
+            ),
         )
 
     def to_dict(self) -> dict[str, Any]:
         return {
-            "graphId": self.graphId,
-            "total": self.total,
-            "page": self.page,
-            "pageSize": self.pageSize,
-            "items": [item.to_dict() for item in self.items],
+            **_validate(
+                GraphPageResult[_SdkEntityView],
+                {
+                    "graphId": self.graphId,
+                    "total": self.total,
+                    "page": self.page,
+                    "pageSize": self.pageSize,
+                    "totalPages": self.totalPages,
+                    "items": [item.to_dict() for item in self.items],
+                },
+            ),
             **self.extra,
         }
 
@@ -494,27 +649,49 @@ class RelationListData:
     total: int = 0
     page: int = 1
     pageSize: int = 20
+    totalPages: int = 0
     items: list[Relation] = field(default_factory=list)
     extra: dict[str, Any] = field(default_factory=dict)
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> "RelationListData":
+        model = GraphPageResult[_SdkRelationView].model_validate(
+            {
+                "graphId": str(data.get("graphId", "")),
+                "total": int(data.get("total") or 0),
+                "page": int(data.get("page") or 1),
+                "pageSize": int(data.get("pageSize") or 20),
+                "totalPages": int(data.get("totalPages") or 0),
+                "items": _records(data.get("items")),
+            }
+        )
         return cls(
-            graphId=str(data.get("graphId", "")),
-            total=int(data.get("total") or 0),
-            page=int(data.get("page") or 1),
-            pageSize=int(data.get("pageSize") or 20),
-            items=[Relation.from_dict(item) for item in _records(data.get("items"))],
-            extra=_extra(data, {"graphId", "total", "page", "pageSize", "items"}),
+            graphId=str(model.graphId or ""),
+            total=model.total,
+            page=model.page,
+            pageSize=model.pageSize,
+            totalPages=model.totalPages,
+            items=[
+                Relation.from_dict(item.model_dump(exclude_unset=True)) for item in model.items
+            ],
+            extra=_extra(
+                data, {"graphId", "total", "page", "pageSize", "totalPages", "items"}
+            ),
         )
 
     def to_dict(self) -> dict[str, Any]:
         return {
-            "graphId": self.graphId,
-            "total": self.total,
-            "page": self.page,
-            "pageSize": self.pageSize,
-            "items": [item.to_dict() for item in self.items],
+            **_validate(
+                GraphPageResult[_SdkRelationView],
+                {
+                    "graphId": self.graphId,
+                    "total": self.total,
+                    "page": self.page,
+                    "pageSize": self.pageSize,
+                    "totalPages": self.totalPages,
+                    "items": [item.to_dict() for item in self.items],
+                },
+            ),
             **self.extra,
         }
 
@@ -534,24 +711,47 @@ class NeighborData:
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> "NeighborData":
         center = data.get("center")
+        model = GraphNeighborsResponse.model_validate(
+            {
+                "graphId": str(data.get("graphId", "")),
+                "entityId": str(data.get("entityId", "")),
+                "depth": int(data.get("depth") or 1),
+                "center": dict(center) if isinstance(center, dict) else None,
+                "nodes": _records(data.get("nodes")),
+                "edges": _records(data.get("edges")),
+            }
+        )
         return cls(
-            graphId=str(data.get("graphId", "")),
-            entityId=str(data.get("entityId", "")),
-            depth=int(data.get("depth") or 1),
-            center=Entity.from_dict(center) if isinstance(center, dict) else None,
-            nodes=[Entity.from_dict(item) for item in _records(data.get("nodes"))],
-            edges=[Relation.from_dict(item) for item in _records(data.get("edges"))],
+            graphId=model.graphId,
+            entityId=model.entityId,
+            depth=model.depth,
+            center=(
+                Entity.from_dict(model.center.model_dump(exclude_unset=True))
+                if model.center
+                else None
+            ),
+            nodes=[
+                Entity.from_dict(item.model_dump(exclude_unset=True)) for item in model.nodes
+            ],
+            edges=[
+                Relation.from_dict(item.model_dump(exclude_unset=True)) for item in model.edges
+            ],
             extra=_extra(data, {"graphId", "entityId", "depth", "center", "nodes", "edges"}),
         )
 
     def to_dict(self) -> dict[str, Any]:
         return {
-            "graphId": self.graphId,
-            "entityId": self.entityId,
-            "depth": self.depth,
-            "center": self.center.to_dict() if self.center else None,
-            "nodes": [item.to_dict() for item in self.nodes],
-            "edges": [item.to_dict() for item in self.edges],
+            **_validate(
+                GraphNeighborsResponse,
+                {
+                    "graphId": self.graphId,
+                    "entityId": self.entityId,
+                    "depth": self.depth,
+                    "center": self.center.to_dict() if self.center else None,
+                    "nodes": [item.to_dict() for item in self.nodes],
+                    "edges": [item.to_dict() for item in self.edges],
+                },
+            ),
             **self.extra,
         }
 
@@ -567,18 +767,30 @@ class GraphPath:
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> "GraphPath":
+        model = _SdkGraphPath.model_validate(
+            {
+                "entityIds": [str(item) for item in (data.get("entityIds") or [])],
+                "nodeNames": [str(item) for item in (data.get("nodeNames") or [])],
+                "length": int(data.get("length") or 0),
+            }
+        )
         return cls(
-            entityIds=[str(item) for item in (data.get("entityIds") or [])],
-            nodeNames=[str(item) for item in (data.get("nodeNames") or [])],
-            length=int(data.get("length") or 0),
+            entityIds=list(model.entityIds),
+            nodeNames=list(model.nodeNames),
+            length=model.length,
             extra=_extra(data, {"entityIds", "nodeNames", "length"}),
         )
 
     def to_dict(self) -> dict[str, Any]:
         return {
-            "entityIds": list(self.entityIds),
-            "nodeNames": list(self.nodeNames),
-            "length": self.length,
+            **_validate(
+                _SdkGraphPath,
+                {
+                    "entityIds": list(self.entityIds),
+                    "nodeNames": list(self.nodeNames),
+                    "length": self.length,
+                },
+            ),
             **self.extra,
         }
 
@@ -596,12 +808,23 @@ class PathListData:
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> "PathListData":
+        model = GraphPathsResponse.model_validate(
+            {
+                "graphId": str(data.get("graphId", "")),
+                "sourceEntityId": str(data.get("sourceEntityId", "")),
+                "targetEntityId": str(data.get("targetEntityId", "")),
+                "total": int(data.get("total") or 0),
+                "items": _records(data.get("items")),
+            }
+        )
         return cls(
-            graphId=str(data.get("graphId", "")),
-            sourceEntityId=str(data.get("sourceEntityId", "")),
-            targetEntityId=str(data.get("targetEntityId", "")),
-            total=int(data.get("total") or 0),
-            items=[GraphPath.from_dict(item) for item in _records(data.get("items"))],
+            graphId=model.graphId,
+            sourceEntityId=model.sourceEntityId,
+            targetEntityId=model.targetEntityId,
+            total=model.total,
+            items=[
+                GraphPath.from_dict(item.model_dump(exclude_unset=True)) for item in model.items
+            ],
             extra=_extra(
                 data,
                 {"graphId", "sourceEntityId", "targetEntityId", "total", "items"},
@@ -610,11 +833,16 @@ class PathListData:
 
     def to_dict(self) -> dict[str, Any]:
         return {
-            "graphId": self.graphId,
-            "sourceEntityId": self.sourceEntityId,
-            "targetEntityId": self.targetEntityId,
-            "total": self.total,
-            "items": [item.to_dict() for item in self.items],
+            **_validate(
+                GraphPathsResponse,
+                {
+                    "graphId": self.graphId,
+                    "sourceEntityId": self.sourceEntityId,
+                    "targetEntityId": self.targetEntityId,
+                    "total": self.total,
+                    "items": [item.to_dict() for item in self.items],
+                },
+            ),
             **self.extra,
         }
 
@@ -651,20 +879,33 @@ class ExportResult:
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> "ExportResult":
+        model = GraphExportResponse.model_validate(
+            {
+                "graphId": str(data.get("graphId", "")),
+                "format": str(data.get("format", "jsonl")),
+                "total": int(data.get("total") or 0),
+                "content": str(data.get("content", "")),
+            }
+        )
         return cls(
-            graphId=str(data.get("graphId", "")),
-            format=str(data.get("format", "jsonl")),
-            total=int(data.get("total") or 0),
-            content=str(data.get("content", "")),
+            graphId=str(model.graphId or ""),
+            format=model.format,
+            total=model.total,
+            content=model.content,
             extra=_extra(data, {"graphId", "format", "total", "content"}),
         )
 
     def to_dict(self) -> dict[str, Any]:
         return {
-            "graphId": self.graphId,
-            "format": self.format,
-            "total": self.total,
-            "content": self.content,
+            **_validate(
+                GraphExportResponse,
+                {
+                    "graphId": self.graphId,
+                    "format": self.format,
+                    "total": self.total,
+                    "content": self.content,
+                },
+            ),
             **self.extra,
         }
 
@@ -866,16 +1107,29 @@ class JobData:
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> "JobData":
+        model = EngineJobView.model_validate(
+            {
+                "jobId": str(data.get("jobId", "")),
+                "graphId": str(data.get("graphId", "")),
+                "task": str(data.get("task", "")),
+                "status": str(data.get("status", "pending")),
+                "payload": dict(data.get("payload") or {}),
+                "result": data.get("result"),
+                "error": data.get("error"),
+                "createdAt": str(data.get("createdAt", "")),
+                "updatedAt": str(data.get("updatedAt", "")),
+            }
+        )
         return cls(
-            jobId=str(data.get("jobId", "")),
-            graphId=str(data.get("graphId", "")),
-            task=str(data.get("task", "")),
-            status=str(data.get("status", "pending")),
-            payload=dict(data.get("payload") or {}),
-            result=data.get("result"),
-            error=data.get("error"),
-            createdAt=str(data.get("createdAt", "")),
-            updatedAt=str(data.get("updatedAt", "")),
+            jobId=model.jobId,
+            graphId=model.graphId,
+            task=model.task,
+            status=model.status,
+            payload=dict(model.payload),
+            result=model.result,
+            error=str(model.error) if model.error is not None else None,
+            createdAt=str(model.createdAt or ""),
+            updatedAt=str(model.updatedAt or ""),
             extra=_extra(
                 data,
                 {
@@ -894,20 +1148,30 @@ class JobData:
 
     @property
     def finished(self) -> bool:
-        """任务是否已终结（success/failed）。"""
-        return self.status in ("success", "failed")
+        """任务是否已终结（本地态经 sdk 映射后的外态为终态，G3 口径）。"""
+        return self.taskStatus in _TERMINAL_TASK_STATUSES
+
+    @property
+    def taskStatus(self) -> TaskStatus:
+        """外部态作业状态（`engine_status_to_task_status` 边界映射；未知态 fail-closed 为 FAILED）。"""
+        return engine_status_to_task_status(self.status)
 
     def to_dict(self) -> dict[str, Any]:
         return {
-            "jobId": self.jobId,
-            "graphId": self.graphId,
-            "task": self.task,
-            "status": self.status,
-            "payload": dict(self.payload),
-            "result": self.result,
-            "error": self.error,
-            "createdAt": self.createdAt,
-            "updatedAt": self.updatedAt,
+            **_validate(
+                EngineJobView,
+                {
+                    "jobId": self.jobId,
+                    "graphId": self.graphId,
+                    "task": self.task,
+                    "status": self.status,
+                    "payload": dict(self.payload),
+                    "result": self.result,
+                    "error": self.error,
+                    "createdAt": self.createdAt,
+                    "updatedAt": self.updatedAt,
+                },
+            ),
             **self.extra,
         }
 

@@ -13,6 +13,7 @@ from typing import Any, Callable
 
 import grpc
 from google.protobuf import descriptor_pb2, descriptor_pool, message_factory
+from ikc_sdk.core.trace import normalize_trace_id
 
 from ..errors import GraphEngineError
 from ..protocol import error, new_trace_id, ok
@@ -213,7 +214,7 @@ def _get_job(service, p: dict[str, Any]) -> dict[str, Any]:
 
 def _make_handler(method: str, service: Any | None = None):
     def _call(request: Any, context: Any) -> Any:
-        trace_id = request.trace_id or new_trace_id()
+        trace_id = normalize_trace_id(request.trace_id)  # G2：非法 traceId 重新生成
         try:
             data = json.loads(request.data_json or "{}")
             params = dict(data.get("params") or data)

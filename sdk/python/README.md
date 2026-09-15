@@ -1,7 +1,11 @@
 # semantica-graph-sdk
 
 Semantica Graph Engine **独立承载服务**（图引擎作为独立进程/容器对外提供）的应用集成 SDK。**v0.1.0**，
-仅依赖 `httpx`，与主包 `graph-engine`（服务端）解耦。
+依赖 `httpx`（传输）与 `ikc-sdk-lib==0.7.0`（图谱资产 DTO 的形状单一来源：`EntityView`/`RelationView`/
+`GraphPageResult`/`EngineJobView` 等），与主包 `graph-engine`（服务端）解耦、不 import 服务端模块。
+
+DTO 经 sdk 模型校验后序列化：分页壳含 `totalPages`；作业对象 `status` 为引擎本地态，`taskStatus` 为
+映射后的外部态（`SUCCEEDED`/`FAILED`…，未知态 fail-closed=FAILED）；`JobData.finished` 按外部态终态判定。
 
 设计文档：`docs/独立承载服务与SDK集成设计.md`（仓库根目录）。
 

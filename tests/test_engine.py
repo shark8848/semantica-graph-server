@@ -194,16 +194,26 @@ def test_http_app(svc):
     from graph_engine.interfaces.http_app import create_app
 
     client = TestClient(create_app(svc))
+    # G2 口径：合法 23 位数字 traceId 原样透传；非法值重新生成（禁止继续透传）
+    trace_id = "17579000000001234567890"
     resp = client.post(
         "/api/v1/graph/graphs",
         json={"name": "HTTP 图", "kbId": "kb_http", "graphSchema": SCHEMA},
-        headers={"X-Trace-Id": "trace-1"},
+        headers={"X-Trace-Id": trace_id},
     )
     assert resp.status_code == 200
     body = resp.json()
-    assert body["traceId"] == "trace-1"
+    assert body["traceId"] == trace_id
     assert body["errCode"] == "0"
     gid = body["data"]["graphId"]
+
+    resp = client.post(
+        f"/api/v1/graph/graphs/{gid}/build",
+        json={"entities": [], "relations": []},
+        headers={"X-Trace-Id": "trace-1"},
+    )
+    regenerated = resp.json()["traceId"]
+    assert regenerated != "trace-1" and len(regenerated) == 23 and regenerated.isdigit()
 
     resp = client.post(f"/api/v1/graph/graphs/{gid}/build", json={"entities": [{"name": "Alice", "type": "person"}], "docId": "d1"})
     assert resp.json()["errCode"] == "0"

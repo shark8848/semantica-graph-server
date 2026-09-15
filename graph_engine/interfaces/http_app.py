@@ -6,14 +6,16 @@ from typing import Any
 
 from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.responses import JSONResponse
+from ikc_sdk.core.trace import extract_request_trace_id, normalize_trace_id
 
 from ..errors import GraphEngineError
-from ..protocol import TRACE_ID_HEADER, error, new_trace_id, ok
+from ..protocol import error, ok
 from ..runtime import get_service
 
 
 def _trace(request: Request) -> str:
-    return request.headers.get(TRACE_ID_HEADER) or new_trace_id()
+    """入口 traceId（G2）：按契约头优先级提取，非法值重新生成（禁止继续透传）。"""
+    return normalize_trace_id(extract_request_trace_id(request.headers))
 
 
 def _flag(value: Any) -> bool | None:

@@ -11,8 +11,10 @@ import json
 import sys
 from typing import Any, Callable
 
+from ikc_sdk.core.trace import normalize_trace_id
+
 from ..errors import GraphEngineError
-from ..protocol import error, new_trace_id, ok
+from ..protocol import error, ok
 from ..runtime import get_service
 
 SERVER_INFO = {"name": "graph-engine", "version": "0.1.0"}
@@ -107,7 +109,7 @@ def _handle_request(req: dict[str, Any], handlers: dict[str, Callable]) -> dict[
     req_id = req.get("id")
     if req_id is None:
         return None  # notification，无需响应
-    trace_id = str(req.get("traceId") or new_trace_id())
+    trace_id = normalize_trace_id(req.get("traceId"))  # G2：非法 traceId 重新生成
     if method == "initialize":
         return {
             "jsonrpc": "2.0",

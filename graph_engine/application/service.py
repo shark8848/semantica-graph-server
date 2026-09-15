@@ -8,6 +8,11 @@ import re
 import uuid
 from typing import Any
 
+from ikc_sdk.core.api.graph.edges import GraphEdgesResponse
+from ikc_sdk.core.api.graph.nodes import GraphNodesResponse
+from ikc_sdk.core.api.graph.stat import GraphStatResponse
+from ikc_sdk.core.models.task import EngineJobView
+
 from .. import adapters
 from ..config import Settings
 from ..adapters.retrieval import RetrievalAdapter
@@ -32,6 +37,33 @@ def _with_doc_id(record: Any, doc_id: str) -> Any:
     if doc_id and not any(str(item.get("docId") or "") == doc_id for item in evidence):
         evidence.append({"docId": doc_id})
     return replace(record, doc_id=doc_id, evidence=evidence)
+
+
+# 分页口径（G-02/G-03，与 W-01 一致）：page≥1、pageSize 1~200、缺省 20
+def _page_no(page: int) -> int:
+    return max(int(page), 1)
+
+
+def _page_size(page_size: int) -> int:
+    return min(max(int(page_size), 1), 200)
+
+
+def _total_pages(total: int, page_size: int) -> int:
+    """总页数（无数据为 0）；契约要求 totalPages 必填，与 core 视图同口径。"""
+    return 0 if total <= 0 else (int(total) + int(page_size) - 1) // int(page_size)
+
+
+def _job_view(job: dict[str, Any]) -> dict[str, Any]:
+    """作业视图（G3）：形状校验走 sdk `EngineJobView`。
+
+    引擎本地态（pending/running/success/failed）保留在 `status`（不改写引擎载荷），
+    外部态经 `engine_status_to_task_status()` 映射后以 `taskStatus` 一并给出，
+    供 core / 调度层直接消费；未知字面量 fail-closed 为 FAILED。
+    """
+    view = EngineJobView.model_validate(job)
+    payload = view.model_dump(exclude_unset=True)
+    payload["taskStatus"] = view.taskStatus.value
+    return payload
 
 
 def _env_bool(key: str, default: bool = False) -> bool:
@@ -250,15 +282,17 @@ class GraphEngineService:
     def stat(self, graph_id_value: str) -> dict[str, Any]:
         meta = self._require_graph(graph_id_value)
         stat = self.store.stat(graph_id_value)
-        return {
-            "graphId": graph_id_value,
-            "kbId": meta.kb_id,
-            "nodeCount": stat["nodeCount"],
-            "edgeCount": stat["edgeCount"],
-            "entityTypes": stat["entityTypes"],
-            "relationTypes": stat["relationTypes"],
-            "schemaCoverage": self._schema_coverage(meta.schema, stat),
-        }
+        return GraphStatResponse.model_validate(
+            {
+                "graphId": graph_id_value,
+                "kbId": meta.kb_id,
+                "nodeCount": stat["nodeCount"],
+                "edgeCount": stat["edgeCount"],
+                "entityTypes": stat["entityTypes"],
+                "relationTypes": stat["relationTypes"],
+                "schemaCoverage": self._schema_coverage(meta.schema, stat),
+            }
+        ).model_dump(exclude_unset=True)
 
     @staticmethod
     def _schema_coverage(schema: dict[str, Any], stat: dict[str, Any]) -> dict[str, Any]:
@@ -305,14 +339,18 @@ class GraphEngineService:
         records = self.store.list_entities(
             graph_id_value, entity_type=entity_type.strip() or None, name=name.strip() or None
         )
-        total, items = _paginate(records, max(page, 1), min(max(page_size, 1), 200))
-        return {
-            "graphId": graph_id_value,
-            "total": total,
-            "page": max(page, 1),
-            "pageSize": min(max(page_size, 1), 200),
-            "items": [record.to_dict() for record in items],
-        }
+        page_no, size = _page_no(page), _page_size(page_size)
+        total, items = _paginate(records, page_no, size)
+        return GraphNodesResponse.model_validate(
+            {
+                "graphId": graph_id_value,
+                "total": total,
+                "page": page_no,
+                "pageSize": size,
+                "totalPages": _total_pages(total, size),
+                "items": [record.to_dict() for record in items],
+            }
+        ).model_dump(exclude_unset=True)
 
     def list_edges(
         self,
@@ -324,14 +362,18 @@ class GraphEngineService:
     ) -> dict[str, Any]:
         self._require_graph(graph_id_value)
         records = self.store.list_relations(graph_id_value, relation_type=relation_type.strip() or None)
-        total, items = _paginate(records, max(page, 1), min(max(page_size, 1), 200))
-        return {
-            "graphId": graph_id_value,
-            "total": total,
-            "page": max(page, 1),
-            "pageSize": min(max(page_size, 1), 200),
-            "items": [record.to_dict() for record in items],
-        }
+        page_no, size = _page_no(page), _page_size(page_size)
+        total, items = _paginate(records, page_no, size)
+        return GraphEdgesResponse.model_validate(
+            {
+                "graphId": graph_id_value,
+                "total": total,
+                "page": page_no,
+                "pageSize": size,
+                "totalPages": _total_pages(total, size),
+                "items": [record.to_dict() for record in items],
+            }
+        ).model_dump(exclude_unset=True)
 
     def neighbors(
         self, graph_id_value: str, *, entity_id_value: str, depth: int = 1
@@ -484,7 +526,15 @@ class GraphEngineService:
     def submit_job(self, task: str, graph_id_value: str = "", payload: dict[str, Any] | None = None) -> dict[str, Any]:
         job_id = f"job_{uuid.uuid4().hex[:12]}"
         self.store.create_job(job_id, graph_id_value, task, dict(payload or {}))
-        return {"jobId": job_id, "graphId": graph_id_value, "task": task, "status": "pending"}
+        return _job_view(
+            {
+                "jobId": job_id,
+                "graphId": graph_id_value,
+                "task": task,
+                "status": "pending",
+                "payload": dict(payload or {}),
+            }
+        )
 
     def run_job(self, job_id: str) -> dict[str, Any]:
         """同步执行已登记任务（Celery worker 与 HTTP async 复用）。"""
@@ -492,7 +542,7 @@ class GraphEngineService:
         if job is None:
             raise NotFoundError("任务不存在", field="jobId", reason=job_id)
         if job["status"] in ("success", "failed"):
-            return job
+            return _job_view(job)
         task = job["task"]
         payload = dict(job["payload"] or {})
         graph_id_value = str(job.get("graphId") or "")
@@ -528,14 +578,14 @@ class GraphEngineService:
         except Exception as exc:
             self.store.update_job(job_id, status="failed", error=str(exc))
             raise
-        return self.store.get_job(job_id)
+        return _job_view(self.store.get_job(job_id))
 
     def get_job(self, job_id: str) -> dict[str, Any]:
         job = self.store.get_job(job_id)
         if job is None:
             raise NotFoundError("任务不存在", field="jobId", reason=job_id)
-        return job
+        return _job_view(job)
 
     def list_jobs(self, *, graph_id_value: str = "", limit: int = 20) -> dict[str, Any]:
         jobs = self.store.list_jobs(graph_id=graph_id_value, limit=limit)
-        return {"total": len(jobs), "items": jobs}
+        return {"total": len(jobs), "items": [_job_view(job) for job in jobs]}

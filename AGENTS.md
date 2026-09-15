@@ -10,6 +10,8 @@ Semantica Graph Engine：把已安装的 `semantica`（0.6.5）封装为对外�
 - `proto/graph/v1/graph.proto` — gRPC 权威契约；`graph_engine/interfaces/grpc_server.py` 为运行时动态 descriptor 实现。
 - `graph_engine/interfaces/` — HTTP / gRPC / Celery / MCP / CLI 五面；共用 `application.GraphEngineService`。
 - `graph_engine/domain/` — 稳定 ID / schema / 合并规则（与 open-ikc 语义兼容）。
+- `graph_engine/domain/models.py` — 图谱资产的**引擎内部记录类型**；线缆形状（camelCase）经
+  `ikc-sdk-lib` 图谱模型校验后序列化，字段清单不在本仓维护（见 §依赖契约（`ikc-sdk-lib`））。
 - `graph_engine/adapters/` — semantica 集成（守卫式导入）+ SQLite 持久化。
 - `docker/` + `Dockerfile` — 单镜像部署（图引擎 + HAProxy 代理层）；`scripts/build_docker.sh`（构建）、`scripts/docker_smoke.sh`（冒烟）。
 - 新增代码按此分层放置，并保持 `docs/解决方案.md` 与接口 envelope 语义同步。
@@ -31,6 +33,21 @@ Semantica Graph Engine：把已安装的 `semantica`（0.6.5）封装为对外�
 
 - 全量回归：`.venv/bin/python -m pytest tests -q`（12 用例，覆盖 domain/存储/application/五面接口）。
 - Docker 改动必须跑 `bash scripts/docker_smoke.sh`（/health、HTTP create+stat、gRPC 经 HAProxy、stats 鉴权、回环隔离、非 root）。
+
+## 依赖契约（`ikc-sdk-lib`，跨仓归位）
+
+- **pin**：`pyproject.toml` 与 `sdk/python/pyproject.toml` 均以 `==` 精确 pin `ikc-sdk-lib==0.7.0`；
+  升级须同步两处 pin + 契约测试 + 本节/`docs/解决方案.md` 说明（本地 wheel 安装见各 pyproject 注释）。
+- **线缆形状唯一来源**：`ikc_sdk.core.models.graph`（`GraphMeta`/`EntityView`/`RelationView`/
+  `GraphPageResult`/`GraphPath`/`TypeCount`/`SchemaCoverage`）、`ikc_sdk.core.api.graph.*`
+  （G-01~G-05 请求/响应）、`ikc_sdk.core.trace`（23 位 traceId）、`ikc_sdk.core.models.task`
+  （`EngineJobView` + `engine_status_to_task_status`）。**禁止在本仓自维护同形字段清单**。
+- **引擎侧约定**：`domain/models.py` 的 `to_dict()`/`from_dict()` 经 sdk 模型校验与序列化
+  （`exclude_unset=True`，不注入 sdk 默认值——core 视图的 `schemaVersion`/`nodeCount`/`edgeCount`
+  不出现在引擎面）；`list_nodes`/`list_edges` 输出含 `totalPages`（契约字段）；作业视图保留引擎本地态
+  `status` 并给出映射后的外部态 `taskStatus`（未知态 fail-closed=FAILED）；入口 traceId 按
+  `normalize_trace_id` 处理非法值（重新生成，禁止继续透传）。
+- **守护测试**：服务端 `tests/test_sdk_graph_contract.py`、客户端 `sdk/python/tests/test_sdk_binding.py`。
 
 ## GitHub Projects Sync (PROJ-SEMANTICA-0001)
 

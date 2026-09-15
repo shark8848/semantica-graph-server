@@ -14,6 +14,10 @@ dependencies = [
   "fastapi>=0.115",
   "uvicorn[standard]>=0.30",
   "pydantic>=2.0",
+  # 跨层共享模型/协议 SDK（跨仓归位契约）：图谱资产对象（G8）、traceId 纯函数（G2）、
+  # 引擎作业视图与状态映射（G3）的**字段形状单一来源**。本地 wheel 安装：
+  #   pip install /home/sharkyai/ikc-sdk-lib/dist/ikc_sdk_lib-0.7.0-py3-none-any.whl
+  "ikc-sdk-lib==0.7.0",
   "grpcio>=1.81",
   "protobuf>=5.29",
   "celery>=5.3",

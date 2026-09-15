@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 import json
-import uuid
 from typing import Any
+
+from ikc_sdk.core.trace import generate_trace_id
 
 from .errors import OK, GraphEngineError
 
@@ -12,7 +13,12 @@ TRACE_ID_HEADER = "X-Trace-Id"
 
 
 def new_trace_id() -> str:
-    return uuid.uuid4().hex[:16]
+    """生成 23 位纯数字 traceId（13 位毫秒 + 10 位随机）。
+
+    算法单一来源 = `ikc_sdk.core.trace`（G2 收口），与 core `api/core/trace.py`、
+    引擎客户端 SDK 及各层一致；调用方显式传入 `X-Trace-Id` 时仍按原值透传（见各面入口）。
+    """
+    return generate_trace_id()
 
 
 def ok(trace_id: str, data: Any) -> dict[str, Any]:
