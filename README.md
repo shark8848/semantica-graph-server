@@ -36,8 +36,8 @@ graph-engine graph export graph_xxx
 
 ## Python SDK
 
-应用侧集成推荐直接用 SDK（`sdk/python`，独立打包 `semantica-graph-sdk` v0.1.0，依赖 `httpx` + `ikc-sdk-lib`；
-已发布 PyPI：`pip install "semantica-graph-sdk==0.1.0"`）：
+应用侧集成推荐直接用 SDK（`sdk/python`，独立打包 `semantica-graph-sdk` v0.1.1，依赖 `httpx` + `ikc-sdk-lib`；
+已发布 PyPI：`pip install "semantica-graph-sdk==0.1.1"`）：
 
 ```python
 from semantica_graph_sdk import GraphEngineClient
@@ -56,7 +56,7 @@ with GraphEngineClient("http://127.0.0.1:18010") as client:
 ## 核心设计
 
 - 分层：`interfaces`（五面）→ `application.GraphEngineService`（用例）→ `domain`（稳定 ID/schema/合并规则）→ `adapters`（semantica + SQLite）。
-- 线缆形状单一来源：`ikc-sdk-lib==0.7.0`（`ikc_sdk.core.models.graph` 图谱资产 / `core.api.graph.*` G 域接口 /
+- 线缆形状单一来源：`ikc-sdk-lib==0.8.3`（`ikc_sdk.core.models.graph` 图谱资产 / `core.api.graph.*` G 域接口 /
   `core.trace` 23 位 traceId / `EngineJobView` 作业视图与状态映射）——引擎只做「行 → 视图」映射与校验，
   分页壳含 `totalPages`，作业视图保留本地态 `status` 并给出外态 `taskStatus`（契约测试守护）。
 - 五面共用同一 application 层，语义一致；`async=true` 建图登记 job 后由 Celery worker 执行。

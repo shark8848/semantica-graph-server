@@ -16,5 +16,5 @@ celery[redis]>=5.3
 typer>=0.12
 # 跨层共享模型/协议 SDK（跨仓归位契约）：图谱资产对象（G8）、traceId 纯函数（G2）、
 # 引擎作业视图与状态映射（G3）。引擎 domain/application/interfaces 直接 import ikc_sdk，
-# 镜像构建必须安装（PyPI 已有 0.7.0）。
-ikc-sdk-lib==0.7.0
+# 镜像构建必须安装（PyPI 已有 0.8.3，2026-09-16 起）。
+ikc-sdk-lib==0.8.3

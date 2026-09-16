@@ -37,7 +37,9 @@ Semantica Graph Engine：把已安装的 `semantica`（0.6.5）封装为对外�
 
 ## 依赖契约（`ikc-sdk-lib`，跨仓归位）
 
-- **pin**：`pyproject.toml` 与 `sdk/python/pyproject.toml` 均以 `==` 精确 pin `ikc-sdk-lib==0.7.0`；
+- **pin**：`pyproject.toml` 与 `sdk/python/pyproject.toml` 均以 `==` 精确 pin `ikc-sdk-lib==0.8.3`
+  （2026-09-16 由 `0.7.0` 升级：0.8.x 已打标签并发布 PyPI，0.8.0/0.8.1 为 Wiki/图谱只读与 G-05 format
+  收敛、0.8.2/0.8.3 为 W-06/G-06 构建与 W-07/G-07 作业视图；本仓消费的 G8/G2/G3 形状不变）；
   升级须同步两处 pin + 契约测试 + 本节/`docs/解决方案.md` 说明（本地 wheel 安装见各 pyproject 注释）。
 - **线缆形状唯一来源**：`ikc_sdk.core.models.graph`（`GraphMeta`/`EntityView`/`RelationView`/
   `GraphPageResult`/`GraphPath`/`TypeCount`/`SchemaCoverage`）、`ikc_sdk.core.api.graph.*`

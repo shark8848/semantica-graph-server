@@ -1,9 +1,9 @@
 # Semantica Graph Engine 独立承载服务与 SDK 集成设计（semantica-graph-sdk）
 
-> 版本：1.0.0（文档版本；SDK 包版本 0.1.0）
+> 版本：1.0.0（文档版本；SDK 包版本 0.1.1）
 > 状态：已实现并自测通过（`sdk/python`，`pytest` 58 passed，含跨仓模型绑定契约测试）
 > 发布形态：SDK 位于本仓库 `sdk/python/`，独立打包（dist 名 `semantica-graph-sdk`，import 名
-> `semantica_graph_sdk`，依赖 `httpx` + `ikc-sdk-lib==0.7.0`——图谱资产 DTO 的形状单一来源），
+> `semantica_graph_sdk`，依赖 `httpx` + `ikc-sdk-lib==0.8.3`——图谱资产 DTO 的形状单一来源），
 > 与主包 `graph-engine`（服务端）解耦，可按需独立发版。
 > 适用范围：面向外部应用的集成客户端 SDK；图引擎作为**独立承载服务**（独立进程/容器）运行——
 > 本地 `graph-engine serve http`（默认 HTTP 18010）或 Docker 单镜像栈（HAProxy 入口 18180）。
@@ -30,7 +30,7 @@ RDF/SPARQL 视图、语义检索、异步任务（jobs）。应用侧直接调 H
 | 维度 | 约定 |
 | --- | --- |
 | 写范围 | 仅 `sdk/python/`、本文档、README/看板等文档；**不修改** `graph_engine/`（除 HTTP 面补齐检索端点）、`proto/` |
-| 依赖 | `httpx`（传输）+ `ikc-sdk-lib==0.7.0`（DTO 形状单一来源，其自身依赖 pydantic）；不引入 fastapi/typer，不 import 服务端内部模块 |
+| 依赖 | `httpx`（传输）+ `ikc-sdk-lib==0.8.3`（DTO 形状单一来源，其自身依赖 pydantic）；不引入 fastapi/typer，不 import 服务端内部模块 |
 | 命名 | dist 名 `semantica-graph-sdk`，import 名 `semantica_graph_sdk`，与服务端包 `graph_engine` 区分 |
 | 耦合面 | 仅 HTTP 协议：路径 `/api/v1/graph/*`、统一响应壳（`{traceId,errCode,errMsg,data}`）、
   错误码（`0 / 200001 / 200404 / 200409 / 200500`）、Header 约定（`X-Trace-Id`） |
@@ -47,7 +47,7 @@ sdk/python/
   README.md               # SDK 使用说明（安装 / 快速开始 / 环境变量 / 联调冒烟）
   semantica_graph_sdk/
     __init__.py           # 导出 GraphEngineClient / AsyncGraphEngineClient / 异常 / 模型
-    _version.py           # SDK 版本号（0.1.0）
+    _version.py           # SDK 版本号（0.1.1）
     _bootstrap.py         # client_from_env / async_client_from_env：环境变量 → 客户端
     client.py             # 主客户端 + graphs/jobs 域子客户端 + raw 逃生口 + fetch_openapi/health
     async_client.py       # 异步客户端（httpx.AsyncClient），领域方法同同步客户端
@@ -206,7 +206,7 @@ MCP/application 层能力）：
 
 ## 9. 发布与版本
 
-- 版本：SDK `0.1.0`，与服务端 `graph-engine 0.1.0` 独立演进（SDK 语义版本随 HTTP 契约变化）。
+- 版本：SDK `0.1.1`，与服务端 `graph-engine 0.1.0` 独立演进（SDK 语义版本随 HTTP 契约变化）。
 - 打包：`sdk/python/pyproject.toml`（setuptools，`packages.find include = ["semantica_graph_sdk*"]`）。
 - 安装：`pip install sdk/python`（仓库内）；后续如需对外发布，走 PyPI（与 openwiki-server-sdk 同流程）。
 - 兼容性：新增模型字段向后兼容（未知字段进 `extra`）；错误码新增时映射为 `GraphEngineBusinessError`，

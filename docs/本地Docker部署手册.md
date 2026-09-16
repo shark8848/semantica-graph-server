@@ -58,7 +58,7 @@ ss -ltn | grep -E ':(18180|18151|8406)\b'       # 应无输出（端口空闲）
 ```
 
 - **依赖源**：构建机需可访问 PyPI。builder 阶段安装 `requirements.txt`，其中包含跨层共享模型
-  SDK `ikc-sdk-lib==0.7.0`（引擎 `domain`/`application`/`interfaces` 直接 `import ikc_sdk`），
+  SDK `ikc-sdk-lib==0.8.3`（引擎 `domain`/`application`/`interfaces` 直接 `import ikc_sdk`），
   缺该包容器会启动失败；离线构建机见 2.3。
 - **宿主 Redis（Celery broker/backend）**：compose 栈**不启动任何 redis 容器**，默认连宿主本地 Redis
   （`redis://:1qaz2wsx3edc@host.docker.internal:6379/0`）。宿主 Redis 必须**监听 `0.0.0.0` 且开启密码**，
@@ -93,7 +93,7 @@ IMAGE_TAG=graph-engine:test bash scripts/build_docker.sh   # 自定义 tag（com
 
 ```bash
 # 有外网机器（同版本 Python 环境）
-pip download -r requirements.txt -d docker/wheels     # 含 ikc-sdk-lib==0.7.0
+pip download -r requirements.txt -d docker/wheels     # 含 ikc-sdk-lib==0.8.3
 # 拷到构建机：scp -r docker/wheels 构建机:.../semantica-graph-server/docker/
 ```
 
@@ -106,7 +106,7 @@ RUN pip install --no-cache-dir --timeout 300 --retries 15 --find-links ./wheels 
 ```
 
 路径 B（内网 PyPI 镜像）：给 builder 加 `ENV PIP_INDEX_URL=<内网源>/simple`，需该源已同步
-`ikc-sdk-lib==0.7.0` 与 semantica 全量依赖。
+`ikc-sdk-lib==0.8.3` 与 semantica 全量依赖。
 
 > 两条路径都必须在 builder 内完成依赖安装；`runtime` 阶段是 `COPY --from=builder`，不重新联网装包。
 
@@ -373,7 +373,7 @@ docker compose up -d --no-build
 
 | 现象 | 根因 | 处置 |
 | --- | --- | --- |
-| 容器反复重启、日志 `[error] 引擎未在 30s 内就绪` / `引擎进程退出` | 引擎自身启动失败（依赖缺失、DB 不可写等）；入口脚本 fail-fast 是有意设计 | `docker logs graph-engine-engine-1` 看引擎 traceback；常见为 `ModuleNotFoundError: ikc_sdk`（镜像未含 `ikc-sdk-lib==0.7.0`，需重建镜像） |
+| 容器反复重启、日志 `[error] 引擎未在 30s 内就绪` / `引擎进程退出` | 引擎自身启动失败（依赖缺失、DB 不可写等）；入口脚本 fail-fast 是有意设计 | `docker logs graph-engine-engine-1` 看引擎 traceback；常见为 `ModuleNotFoundError: ikc_sdk`（镜像未含 `ikc-sdk-lib==0.8.3`，需重建镜像） |
 | `sqlite3.OperationalError: unable to open database file` | 宿主挂载目录不可写（容器 uid 1000） | `sudo chown -R 1000:1000 <数据目录>` |
 | 异步作业长期 `pending` | ①容器内 worker 未启动（broker 不可达）；②镜像缺 `redis` 包（kombu redis 传输导入失败，worker 启动即崩，日志含 `'NoneType' object has no attribute 'Redis'`） | ①确认宿主 Redis 监听 `0.0.0.0` 且有密码；②确认 `requirements.txt` 为 `celery[redis]>=5.3` 并重建镜像；`docker logs ... \| grep -i celery`；也可改同步调用（不加 `async`） |
 | `POST /api/v1/graph/graphs` 返回 409 | 同一 `kbId` 已存在图谱（幂等/唯一约束，非故障） | 换 `kbId`，或先 `GET /api/v1/graph/graphs` 找到已有 `graphId` 复用 |
@@ -403,7 +403,7 @@ with GraphEngineClient("http://<服务器IP>:18180") as client:   # 本机直连
 
 - 覆盖 `graphs`（CRUD/建图合并/统计/查询/路径/分析/导出/SPARQL/检索）与 `jobs`（run/get/list/wait），
   同步 + 异步双客户端，统一 envelope/错误码/traceId 语义；用法见 `sdk/python/README.md`。
-- 引擎线缆形状单一来源为 `ikc-sdk-lib==0.7.0`（图谱资产 G8 / `EngineJobView` 作业视图 G3 / 23 位 traceId G2），
+- 引擎线缆形状单一来源为 `ikc-sdk-lib==0.8.3`（图谱资产 G8 / `EngineJobView` 作业视图 G3 / 23 位 traceId G2），
   上层服务（open-ikc、ikc-core-service）按同一套模型校验，避免字段漂移。
 
 ## 12. 与 openwiki-server 部署手册的差异
@@ -416,7 +416,7 @@ with GraphEngineClient("http://<服务器IP>:18180") as client:   # 本机直连
 | 端口 | 18011 / 50052 / 8404 | 18180 / 18151 / 8406（容器内 8080 / 50051 / 8404） |
 | 数据卷 | `openwiki-server_app_data` | `graph-engine_engine_data` / `graph-engine_engine_logs` |
 | 冒烟脚本 | 无（手册内逐条 curl） | `bash scripts/docker_smoke.sh`（8 项断言，含 gRPC/回环隔离/非 root/CLI/MCP） |
-| 额外依赖 | 镜像内置可选 `ikc-log-center` | 镜像内置必需 `ikc-sdk-lib==0.7.0`（构建/离线预置见 2.1/2.3） |
+| 额外依赖 | 镜像内置可选 `ikc-log-center` | 镜像内置必需 `ikc-sdk-lib==0.8.3`（构建/离线预置见 2.1/2.3） |
 
 ## 13. 相关文档
 

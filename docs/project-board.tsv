@@ -20,3 +20,4 @@ core 数据面回写通道（/internal/graph/build，落地语义只在 ikc-core
 文本建图关系抽取（规则共现 + semantica 增强降级）与 build 响应记录回传	已完成	P1
 规则实体候选扩展（markdown 结构性术语）驱动真实文档 edges>0	已完成	P1
 Celery 作业失败落 failed + error（不再停在 pending）	已完成	P1
+SDK 0.1.1：ikc-sdk-lib pin 升级到 0.8.3（已发布 PyPI）	已完成	P2

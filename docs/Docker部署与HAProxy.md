@@ -51,7 +51,7 @@ bash scripts/build_docker.sh --no-cache   # docker build --no-cache
   （启动时 envsubst 渲染引擎端口与 stats 凭据，同进程拉起引擎 + haproxy，就绪探测 fail-fast，TERM/INT 转发优雅停机）；
   镜像自带 `HEALTHCHECK`（经 HAProxy 探测 `/health`）。
 - `.dockerignore` 已排除 `.venv/`、`tests/`、`data/`、`logs/`、`docker/images/`（大镜像 tar）等，构建上下文保持精简。
-- 依赖口径：`requirements.txt` 与 `pyproject.toml` 必须同步——`ikc-sdk-lib==0.7.0`（线缆形状单一来源，
+- 依赖口径：`requirements.txt` 与 `pyproject.toml` 必须同步——`ikc-sdk-lib==0.8.3`（线缆形状单一来源，
   缺则容器启动即 `ModuleNotFoundError: ikc_sdk`）与 `celery[redis]>=5.3`（缺 `redis-py` 时 worker 启动即崩、
   异步作业永久 `pending`）。开发 venv 里"碰巧已装"的包不会进镜像，镜像实测见 `docs/本地Docker部署手册.md`。
 
