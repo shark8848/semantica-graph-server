@@ -14,6 +14,7 @@ from ikc_sdk.core.api.graph.stat import GraphStatResponse
 from ikc_sdk.core.models.task import EngineJobView
 
 from .. import adapters
+from ..adapters import core_writeback
 from ..config import Settings
 from ..adapters.retrieval import RetrievalAdapter
 from ..domain.ids import entity_id, graph_id, normalize_name, relation_id
@@ -195,12 +196,23 @@ class GraphEngineService:
 
         saved_entities = [self.store.upsert_entity(record) for record in entity_records]
         saved_relations = [self.store.upsert_relation(record) for record in relation_records]
-        return {
+        result = {
             "graphId": graph_id_value,
             "entityCount": len(saved_entities),
             "relationCount": len(saved_relations),
             "semantica": semantica_meta,
         }
+        # 引擎 → core 数据面回写（合并/计数/build_log/废弃/审计在 core 落地）：
+        # 未配置 IKC_CORE_BASE_URL 时返回 None，返回体形状与既有行为一致。
+        writeback = core_writeback.write_assets(
+            meta.kb_id,
+            doc_id=doc_id,
+            entities=[record.to_dict() for record in saved_entities],
+            relations=[record.to_dict() for record in saved_relations],
+        )
+        if writeback is not None:
+            result["writeback"] = writeback
+        return result
 
     def build_from_text(
         self,
@@ -273,9 +285,16 @@ class GraphEngineService:
         return result
 
     def deprecate_doc(self, graph_id_value: str, *, doc_id: str) -> dict[str, Any]:
-        self._require_graph(graph_id_value)
+        meta = self._require_graph(graph_id_value)
         deprecated = self.store.deprecate_doc_assets(graph_id_value, doc_id, set())
-        return {"graphId": graph_id_value, "docId": doc_id, "deprecated": deprecated}
+        result = {"graphId": graph_id_value, "docId": doc_id, "deprecated": deprecated}
+        # 空记录回写 = core 侧同口径 doc 级废弃（实体/关系对称；未启用时无副作用）
+        writeback = core_writeback.write_assets(
+            meta.kb_id, doc_id=doc_id, entities=[], relations=[]
+        )
+        if writeback is not None:
+            result["writeback"] = writeback
+        return result
 
     # ---------- 查询 ----------
 
