@@ -8,7 +8,7 @@
 from __future__ import annotations
 
 import logging
-from typing import Any
+from typing import Any, Callable
 
 from celery import Celery
 
@@ -37,10 +37,22 @@ celery_app.conf.update(
 )
 
 
-def _finish_job(job_id: str, result: dict[str, Any]) -> None:
-    """任务完成后回写引擎 job 表（HTTP async 可轮询）。"""
+def _run_job(job_id: str, run: Callable[[], dict[str, Any]]) -> dict[str, Any]:
+    """执行任务体并把**终态**回写引擎 job 表（HTTP async / G-07 轮询据此判定）。
+
+    异常必须落 `failed` + `error`：引擎只在成功时回写 job 的话，任务抛异常（如目标图谱不存在）
+    会让作业永远停在 `pending`，调用方只能靠轮询超时猜失败。异常照旧向上抛，Celery 保持
+    标准的 FAILURE 语义。
+    """
+    try:
+        result = run()
+    except Exception as exc:
+        if job_id:
+            get_service().store.update_job(job_id, status="failed", error=str(exc))
+        raise
     if job_id:
         get_service().store.update_job(job_id, status="success", result=result)
+    return result
 
 
 @celery_app.task(name="graph_engine.build")
@@ -57,13 +69,16 @@ def build_task(
     """建图任务：--text 走规则抽取（可开 LLM 增强）；否则走显式记录。"""
     svc = get_service()
     if text:
-        result = svc.build_from_text(graph_id, text=text, doc_id=doc_id, title=title, llm=llm)
-    else:
-        result = svc.build_from_records(
-            graph_id, entities=entities or [], relations=relations or [], doc_id=doc_id
+        return _run_job(
+            job_id,
+            lambda: svc.build_from_text(graph_id, text=text, doc_id=doc_id, title=title, llm=llm),
         )
-    _finish_job(job_id, result)
-    return result
+    return _run_job(
+        job_id,
+        lambda: svc.build_from_records(
+            graph_id, entities=entities or [], relations=relations or [], doc_id=doc_id
+        ),
+    )
 
 
 @celery_app.task(name="graph_engine.merge")
@@ -76,27 +91,26 @@ def merge_task(
 ) -> dict[str, Any]:
     """增量合并任务。"""
     svc = get_service()
-    result = svc.merge_records(graph_id, entities=entities or [], relations=relations or [], doc_id=doc_id)
-    _finish_job(job_id, result)
-    return result
+    return _run_job(
+        job_id,
+        lambda: svc.merge_records(
+            graph_id, entities=entities or [], relations=relations or [], doc_id=doc_id
+        ),
+    )
 
 
 @celery_app.task(name="graph_engine.deprecate_doc")
 def deprecate_doc_task(graph_id: str, doc_id: str, job_id: str = "") -> dict[str, Any]:
     """按 docId 增量废弃任务。"""
     svc = get_service()
-    result = svc.deprecate_doc(graph_id, doc_id=doc_id)
-    _finish_job(job_id, result)
-    return result
+    return _run_job(job_id, lambda: svc.deprecate_doc(graph_id, doc_id=doc_id))
 
 
 @celery_app.task(name="graph_engine.export")
 def export_task(graph_id: str, format: str = "jsonl", job_id: str = "") -> dict[str, Any]:
     """导出任务。"""
     svc = get_service()
-    result = svc.export(graph_id, format=format)
-    _finish_job(job_id, result)
-    return result
+    return _run_job(job_id, lambda: svc.export(graph_id, format=format))
 
 
 def _flag(value: Any) -> bool:

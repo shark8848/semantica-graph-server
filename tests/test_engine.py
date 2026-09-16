@@ -321,6 +321,26 @@ def test_celery_tasks(tmp_path):
     assert rt_svc.get_job(job["jobId"])["status"] == "success"
 
 
+def test_celery_task_failure_marks_job_failed(tmp_path):
+    """任务抛异常时必须把作业落 failed + error：否则作业永远停在 pending，调用方只能靠轮询超时猜。"""
+    from graph_engine import runtime
+    from graph_engine.errors import NotFoundError
+    from graph_engine.interfaces.celery_app import build_task
+
+    runtime.reset_runtime()
+    rt_svc = runtime.get_service(str(tmp_path / "celery-fail.db"))
+    payload = {"entities": [{"name": "Alice", "type": "person"}], "docId": "d1"}
+    job = rt_svc.submit_job("build", "graph_missing", payload)
+    with pytest.raises(NotFoundError):
+        build_task.run(
+            "graph_missing", entities=payload["entities"], doc_id="d1", job_id=job["jobId"]
+        )
+    stored = rt_svc.get_job(job["jobId"])
+    assert stored["status"] == "failed"
+    assert stored["error"]
+    assert stored["result"] is None
+
+
 def test_celery_dispatch_job_disabled_noop(tmp_path, monkeypatch):
     """未启用 celery 时 dispatch_job 返回 False、不投递，也不触碰 broker。"""
     from graph_engine import runtime
