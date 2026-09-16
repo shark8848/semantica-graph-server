@@ -56,8 +56,8 @@ Semantica Graph Engine：把已安装的 `semantica`（0.6.5）封装为对外�
 - Auth: Classic PAT（`project` scope）写入 `/tmp/gh_token`（chmod 600），并在 `~/.gh_token` 留持久副本
   （`/tmp` 重启会清空；`scripts/sync-github-projects.sh` 依次回退读取，同一令牌可复用于其它项目）；
   **两个位置均禁止入库**；fine-grained PAT 无法访问用户级 Projects v2。
-- 最近同步：2026-09-15（`bash scripts/sync-github-projects.sh docs/project-board.tsv` →
-  `ok=15 updated=8 fail=0`）。同日用 `deleteProjectV2Item` 清掉历史重命名遗留的重复旧条目
+- 最近同步：2026-09-16（`bash scripts/sync-github-projects.sh docs/project-board.tsv` →
+  `ok=17 updated=16 fail=0`，新增「文本建图关系抽取与 build 响应记录回传」条目）。同日用 `deleteProjectV2Item` 清掉历史重命名遗留的重复旧条目
   「Celery worker 接入真实 Redis（容器内启用）」，回读 `totalCount=15`、节点 15、无归档，
   与 `docs/project-board.tsv` 逐条一致（僵尸条目不再出现，无需再手工对账）。
 - 条目清单（契约的一部分）：`docs/project-board.tsv`，格式 `标题<TAB>状态<TAB>优先级`；

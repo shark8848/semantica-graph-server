@@ -110,7 +110,7 @@ client = GraphEngineClient(
 | `GraphMeta` | `POST/GET/DELETE /graphs` | `graphId / name / kbId / tenantId / ownerId / graphSchema / status / createdAt / updatedAt` |
 | `GraphListData` | `GET /graphs` | `total / items[]` |
 | `DeleteResult` | `DELETE /graphs/{id}` | `graphId / deleted` |
-| `BuildResult` | `POST .../build`、`.../merge` | `entityCount / relationCount / semantica(SemanticaMeta) / llm / deprecated` |
+| `BuildResult` | `POST .../build`、`.../merge` | `entityCount / relationCount / entities[] / relations[] / semantica(SemanticaMeta) / llm / deprecated`（记录为已决策资产，core 侧唯一写库方按此落库；SDK 经 `extra` 透传） |
 | `DeprecateResult` | `POST .../deprecate-doc` | `graphId / docId / deprecated` |
 | `StatResult` | `GET .../stat` | `nodeCount / edgeCount / entityTypes[] / relationTypes[] / schemaCoverage` |
 | `Entity` / `EntityListData` | `GET .../nodes`、neighbors | `entityId / type / name / properties / aliases / evidence / confidence / status` |

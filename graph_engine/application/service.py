@@ -156,7 +156,11 @@ class GraphEngineService:
         doc_id: str = "",
         merge: bool = True,
     ) -> dict[str, Any]:
-        """按记录建图：schema 校验 → 稳定 ID 派生 → semantica 建图 → 增量合并入库。"""
+        """按记录建图：schema 校验 → 稳定 ID 派生 → semantica 建图 → 增量合并入库。
+
+        响应含**已决策记录**（`entities` / `relations`，与回写载荷同一批 `to_dict()`），
+        供 core 侧唯一写库方直接落库；既有 `entityCount` / `relationCount` 等键语义不变。
+        """
         meta = self._require_graph(graph_id_value)
         schema = dict(meta.schema)
         entity_records: list[EntityRecord] = []
@@ -201,6 +205,10 @@ class GraphEngineService:
             "entityCount": len(saved_entities),
             "relationCount": len(saved_relations),
             "semantica": semantica_meta,
+            # 已决策记录（增量字段）：抽什么在引擎、怎么落地在 core——core 只按记录 upsert，
+            # 不重做抽取，避免第二套实现。
+            "entities": [record.to_dict() for record in saved_entities],
+            "relations": [record.to_dict() for record in saved_relations],
         }
         # 引擎 → core 数据面回写（合并/计数/build_log/废弃/审计在 core 落地）：
         # 未配置 IKC_CORE_BASE_URL 时返回 None，返回体形状与既有行为一致。
@@ -223,10 +231,11 @@ class GraphEngineService:
         title: str = "",
         llm: bool | None = None,
     ) -> dict[str, Any]:
-        """文本建图（MVP 规则占位抽取）：文档标题作为 concept 实体 + 「引号词」候选实体。
+        """文本建图（规则抽取）：文档标题作为实体 + 「引号词」候选实体 + 同句共现关系。
 
-        ``llm`` 开启时对候选实体做 semantica LLMExtraction 增强（provider 未配置/
-        不可用时确定降级，见 adapters.llm）；缺省读 ``GRAPH_ENGINE_LLM_ENHANCE``。
+        ``llm`` 开启时对候选实体做 semantica LLMExtraction 增强，并对关系做 semantica
+        RelationExtractor 增强（provider/依赖不可用时均确定降级）；缺省读
+        ``GRAPH_ENGINE_LLM_ENHANCE``。关系口径与 graphSchema 约束见 adapters.relations。
         """
         if llm is None:
             llm = _env_bool("GRAPH_ENGINE_LLM_ENHANCE", False)
@@ -252,10 +261,21 @@ class GraphEngineService:
         if llm:
             entities, llm_meta = adapters.enhance_text_entities(text or "", entities)
 
+        # 关系抽取（规则共现，llm 开启时叠加 semantica 增强）：端点为实体稳定 ID，
+        # 类型受 graphSchema 约束，证据带 docId + 片段
+        relations = adapters.extract_text_relations(
+            text or "",
+            entities,
+            schema=schema,
+            graph_id_value=graph_id_value,
+            doc_id=doc_id,
+            llm=bool(llm),
+        )
+
         result = self.build_from_records(
             graph_id_value,
             entities=entities,
-            relations=[],
+            relations=relations,
             doc_id=doc_id,
         )
         if llm_meta:
