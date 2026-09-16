@@ -18,3 +18,4 @@ SDK 独立发布到 PyPI（semantica-graph-sdk 0.1.0）	已完成	P2
 图谱资产模型归位：消费 ikc-sdk-lib 0.7.0（G8 形状 / G2 traceId / G3 状态映射）	已完成	P1
 core 数据面回写通道（/internal/graph/build，落地语义只在 ikc-core-service）	已完成	P1
 文本建图关系抽取（规则共现 + semantica 增强降级）与 build 响应记录回传	已完成	P1
+规则实体候选扩展（markdown 结构性术语）驱动真实文档 edges>0	已完成	P1

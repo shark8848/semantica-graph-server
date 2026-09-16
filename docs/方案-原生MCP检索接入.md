@@ -18,7 +18,7 @@
 - `graph_engine/interfaces/mcp_server.py` docstring 明确：「与 semantica 自带 mcp_server 同思路，但只依赖引擎 application 层，**避开当前 venv 中损坏的 semantica.context/vector_store 导入链**」。
 - 对外 stdio JSON-RPC，15 个 `graph_*` 工具（**2026-09-07 骨架落地后新增 `graph_search`/`graph_index_status`，共 17 个**，见 §5 阶段 3）：`graph_create / graph_list / graph_get / graph_delete / graph_stat / graph_build / graph_merge / graph_deprecate_doc / graph_nodes / graph_edges / graph_neighbors / graph_paths / graph_export / graph_job_run / graph_job_get`。
 - 能力特征：CRUD/建图/合并/废弃/结构化查询/任务，全部落在 `graph_engine/application/service.py`；查询是结构化过滤（entityType/name）与图遍历，**无向量召回、无语义相似检索**。
-- 文本建图 `build_from_text` 是规则占位（标题 + 引号候选词），SQLite 只存 `graphs/entities/relations/jobs` 四类表，**不保留文档原文/chunk**。
+- 文本建图 `build_from_text` 是规则实现（markdown 标题/粗体/行内代码 + 引号候选词 → 同句共现关系，见 `adapters/entities.py`、`adapters/relations.py`），SQLite 只存 `graphs/entities/relations/jobs` 四类表，**不保留文档原文/chunk**。
 - 适配层 `graph_engine/adapters/semantica.py` 只守卫式 import `semantica` 与 `semantica.kg`（GraphBuilder/Analyzer），刻意不触碰 `semantica.context/vector_store`。
 
 ### 1.2 调研动作（本任务实际执行，均只读）

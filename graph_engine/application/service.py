@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import json
 import os
-import re
 import uuid
 from typing import Any
 
@@ -231,7 +230,8 @@ class GraphEngineService:
         title: str = "",
         llm: bool | None = None,
     ) -> dict[str, Any]:
-        """文本建图（规则抽取）：文档标题作为实体 + 「引号词」候选实体 + 同句共现关系。
+        """文本建图（规则抽取）：文档标题 + markdown 结构性术语（标题/粗体/行内代码）与「引号词」
+        候选实体 + 同句共现关系。
 
         ``llm`` 开启时对候选实体做 semantica LLMExtraction 增强，并对关系做 semantica
         RelationExtractor 增强（provider/依赖不可用时均确定降级）；缺省读
@@ -248,14 +248,15 @@ class GraphEngineService:
         title = (title or "").strip() or "未命名文档"
         entities.append({"name": title, "type": default_type, "docId": doc_id})
 
-        # MVP 规则：抽取「...」与“...”中的候选词作为实体
-        candidates = re.findall(r"[「“]([^」”]{1,40})[」”]", text or "")
-        seen: set[str] = set()
-        for candidate in candidates:
-            key = normalize_name(candidate)
-            if key and key not in seen:
-                seen.add(key)
-                entities.append({"name": candidate, "type": default_type, "docId": doc_id})
+        # 规则候选：markdown 结构性术语（标题/粗体/行内代码）+「引号词」（见 adapters.entities）。
+        # 关系抽取只让**能在正文定位**的实体参与共现，故候选必须覆盖正文术语，否则只剩标题 → 0 条边。
+        seen: set[str] = {normalize_name(title)}
+        for item in adapters.candidate_terms(text or ""):
+            key = normalize_name(item["name"])
+            if key in seen:
+                continue
+            seen.add(key)
+            entities.append({"name": item["name"], "type": default_type, "docId": doc_id})
 
         llm_meta: dict[str, Any] | None = None
         if llm:
