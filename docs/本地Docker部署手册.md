@@ -2,7 +2,7 @@
 
 适用范围：在**本机（已装 Docker + Compose v2、可访问 PyPI）**构建并运行单镜像栈
 （图引擎五面接口 + HAProxy 代理层同容器）；需要迁移到无构建环境/无外网机器时，
-走第 3/4 节的 `docker save` → 传输 → `docker load` 路径。
+走第 2.2/3 节的「构建即导出（`docker save | gzip`）」→ 传输 → `docker load` 路径。
 
 参考：openwiki-server `docs/deploy-offline.md`（同款「单镜像 + HAProxy 唯一入口」拓扑），
 与本手册的差异见第 12 节对照表。
@@ -20,6 +20,7 @@
 ```bash
 cd /home/sharkyai/semantica-graph-server
 bash scripts/build_docker.sh        # 构建 graph-engine:0.1.0（多阶段；首次下载 torch 等大依赖）
+                                    # 同时导出离线包 docker/images/graph-engine_0.1.0.tar.gz（--no-save 可跳过）
 docker compose up -d                # 启动（HAProxy 入口 18180 HTTP / 18151 gRPC / 8406 stats）
 curl -s http://127.0.0.1:18180/health
 bash scripts/docker_smoke.sh        # 8 项冒烟（脚本内部会自行 compose up/down）
@@ -69,16 +70,21 @@ ss -ltn | grep -E ':(18180|18151|8406)\b'       # 应无输出（端口空闲）
 
 ```bash
 cd /home/sharkyai/semantica-graph-server
-bash scripts/build_docker.sh              # 版本取自 pyproject.toml → graph-engine:0.1.0
+bash scripts/build_docker.sh              # 版本取自 pyproject.toml → graph-engine:0.1.0（并导出 docker/images/*.tar.gz）
+bash scripts/build_docker.sh --no-save    # 只构建，不导出离线包
 bash scripts/build_docker.sh --no-cache   # 需要强制重建依赖层时
 bash scripts/build_docker.sh --pull       # 先拉最新 python:3.12-slim 基础镜像
-IMAGE_TAG=graph-engine:test bash scripts/build_docker.sh   # 自定义 tag（compose 需同步改 image）
+IMAGE_TAG=graph-engine:test bash scripts/build_docker.sh   # 自定义 tag（compose 需同步改 image；导出名随 tag）
+IMAGE_TAG=ikc-graph-engine:0.1.0 bash scripts/build_docker.sh  # ikc-demo 的 start-stack.sh 用的 ikc-* 口径
 ```
 
 - 多阶段：`builder` 装齐引擎依赖（semantica 0.6.5 → torch/transformers/spacy/opencv 等大依赖，
   pip `--timeout 300 --retries 15` 抗网络抖动），**依赖层只随 `requirements.txt` 失效**，
   改代码不重复下载大依赖；`runtime` 只复制安装产物 + HAProxy/gettext。
 - 构建完成后脚本打印镜像体积；`docker images | grep graph-engine` 可核验。
+- **离线包**：构建完成后脚本自动 `docker save | gzip` 导出到 `docker/images/<tag>.tar.gz`
+  （文件名由 tag 推导，`:`/`/` 换成 `_`：`graph-engine:0.1.0` → `graph-engine_0.1.0.tar.gz`）。
+  数 GB 镜像 gzip 需几分钟；只重建镜像、不要包时加 `--no-save`。
 - **实测**：本机单次构建约 13–15 分钟（`requirements.txt` 变更会触发依赖层重装，需重新下载
   torch/nvidia 等数 GB wheel）；仅改 `graph_engine/` 代码时依赖层命中缓存，构建在分钟级完成。
 - **依赖必须写进 `requirements.txt` / `pyproject.toml`**：镜像 builder 只按这两个文件装包，
@@ -112,22 +118,37 @@ RUN pip install --no-cache-dir --timeout 300 --retries 15 --find-links ./wheels 
 
 ## 3. 导出镜像与部署包（迁移到其它机器时）
 
+镜像包由 `scripts/build_docker.sh` **默认导出**（与 ikc-core-service / ikc-open-platform 同口径）：
+
 ```bash
 cd /home/sharkyai/semantica-graph-server
-mkdir -p docker/images
-docker save -o docker/images/graph-engine_0.1.0.tar graph-engine:0.1.0
+bash scripts/build_docker.sh                                    # → docker/images/graph-engine_0.1.0.tar.gz
+IMAGE_TAG=ikc-graph-engine:0.1.0 bash scripts/build_docker.sh   # → docker/images/ikc-graph-engine_0.1.0.tar.gz
+docker images | grep graph-engine                               # 核验镜像与 tag
+```
 
+只想重出包、不重建镜像时用等价的单条命令（`| gzip` 出压缩包；`-o` 出未压缩 tar）：
+
+```bash
+mkdir -p docker/images
+docker save graph-engine:0.1.0 | gzip > docker/images/graph-engine_0.1.0.tar.gz
+# 或：docker save -o docker/images/graph-engine_0.1.0.tar graph-engine:0.1.0
+```
+
+compose 侧文件与校验和仍手工打包：
+
+```bash
 tar czf docker/images/graph-engine-compose-0.1.0.tgz \
   docker-compose.yml docker/.env.example config/engine.example.yaml docs/本地Docker部署手册.md
 
-cd docker/images && sha256sum graph-engine_0.1.0.tar graph-engine-compose-0.1.0.tgz \
+cd docker/images && sha256sum graph-engine_0.1.0.tar.gz graph-engine-compose-0.1.0.tgz \
   > graph-engine-0.1.0-SHA256SUMS.txt
 ```
 
 传输（scp / rsync / U 盘均可）：
 
 ```bash
-scp docker/images/graph-engine_0.1.0.tar \
+scp docker/images/graph-engine_0.1.0.tar.gz \
     docker/images/graph-engine-compose-0.1.0.tgz \
     docker/images/graph-engine-0.1.0-SHA256SUMS.txt \
     root@SERVER:/opt/graph-engine/_release/
@@ -142,7 +163,7 @@ mkdir -p /opt/graph-engine && cd /opt/graph-engine
 tar xzf _release/graph-engine-compose-0.1.0.tgz
 sha256sum -c _release/graph-engine-0.1.0-SHA256SUMS.txt
 
-docker load -i _release/graph-engine_0.1.0.tar
+docker load -i _release/graph-engine_0.1.0.tar.gz
 docker images | grep graph-engine       # 与第 1 节清单一致
 docker compose config --images          # 应为 graph-engine:0.1.0
 ```
@@ -335,11 +356,11 @@ bash scripts/build_docker.sh
 docker compose up -d --build          # 避免复用同 tag 旧镜像
 
 # 目标机（离线包路径）
-docker load -i _release/graph-engine_0.1.0.tar
+docker load -i _release/graph-engine_0.1.0.tar.gz
 docker compose up -d --no-build
 
 # 回滚：保留上一个 tar，load 后用同一份 compose 重建
-docker load -i _release/graph-engine_0.0.9.tar
+docker load -i _release/graph-engine_0.0.9.tar.gz
 docker compose up -d --no-build
 ```
 
@@ -411,7 +432,7 @@ with GraphEngineClient("http://<服务器IP>:18180") as client:   # 本机直连
 | 维度 | openwiki-server `docs/deploy-offline.md` | 本手册 |
 | --- | --- | --- |
 | 定位 | 主打**离线镜像**（build → save → 传输 → load） | **本地构建运行**为主，离线迁移作为第 3/4 节可选路径 |
-| 一键脚本 | `scripts/publish-offline.sh --build/--push`、`scripts/deploy-remote.sh` | 无发布脚本，使用 `scripts/build_docker.sh` + 手工 `docker save/load`（第 3/4 节） |
+| 一键脚本 | `scripts/publish-offline.sh --build/--push`、`scripts/deploy-remote.sh` | `scripts/build_docker.sh`（默认构建 + `docker save` 导出离线包，`--no-save` 跳过；第 2.2/3 节） |
 | 容器名/服务名 | `openwiki-server`（compose 服务 `app`；worker 用 `--profile worker` 另起容器） | `graph-engine-engine-1`（compose 服务 `engine`；worker 随引擎在容器内启动） |
 | 端口 | 18011 / 50052 / 8404 | 18180 / 18151 / 8406（容器内 8080 / 50051 / 8404） |
 | 数据卷 | `openwiki-server_app_data` | `graph-engine_engine_data` / `graph-engine_engine_logs` |

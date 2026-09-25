@@ -75,7 +75,8 @@ with GraphEngineClient("http://127.0.0.1:18010") as client:
 
 ## Docker 部署（单镜像 + HAProxy 反向代理）
 
-- 构建统一镜像（图引擎 + HAProxy 代理层同容器）：`bash scripts/build_docker.sh`
+- 构建统一镜像（图引擎 + HAProxy 代理层同容器）：`bash scripts/build_docker.sh`（默认同时导出
+  `docker/images/<tag>.tar.gz` 离线包，`--no-save` 只构建）
 - 启动：`docker compose up -d`（HAProxy 对外入口 HTTP `18180` / gRPC `18151` / stats `8406`；compose 栈默认
   启用容器内 Celery worker，broker/backend 指向**宿主本地 Redis**，`async=true` 建图由 worker 异步执行，
   `GET /api/v1/graph/jobs/{id}` 轮询）

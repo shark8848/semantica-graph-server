@@ -40,7 +40,8 @@
 ## 2. 构建镜像
 
 ```bash
-bash scripts/build_docker.sh              # 构建 graph-engine:0.1.0（版本取自 pyproject.toml）
+bash scripts/build_docker.sh              # 构建 graph-engine:0.1.0（版本取自 pyproject.toml）+ 导出 docker/images/*.tar.gz
+bash scripts/build_docker.sh --no-save    # 只构建，不导出离线包
 bash scripts/build_docker.sh --no-cache   # docker build --no-cache
 ```
 
@@ -51,6 +52,8 @@ bash scripts/build_docker.sh --no-cache   # docker build --no-cache
   （启动时 envsubst 渲染引擎端口与 stats 凭据，同进程拉起引擎 + haproxy，就绪探测 fail-fast，TERM/INT 转发优雅停机）；
   镜像自带 `HEALTHCHECK`（经 HAProxy 探测 `/health`）。
 - `.dockerignore` 已排除 `.venv/`、`tests/`、`data/`、`logs/`、`docker/images/`（大镜像 tar）等，构建上下文保持精简。
+- 离线包：构建完成后自动 `docker save | gzip` → `docker/images/<tag>.tar.gz`（文件名由 tag 推导）；
+  重出包用 `docker save graph-engine:0.1.0 | gzip > docker/images/graph-engine_0.1.0.tar.gz`。
 - 依赖口径：`requirements.txt` 与 `pyproject.toml` 必须同步——`ikc-sdk-lib==0.8.3`（线缆形状单一来源，
   缺则容器启动即 `ModuleNotFoundError: ikc_sdk`）与 `celery[redis]>=5.3`（缺 `redis-py` 时 worker 启动即崩、
   异步作业永久 `pending`）。开发 venv 里"碰巧已装"的包不会进镜像，镜像实测见 `docs/本地Docker部署手册.md`。
@@ -65,7 +68,7 @@ docker compose down                 # 停止并清理容器/网络（数据卷�
 ```
 
 - 首次启动后等待健康：`docker ps` 中 `graph-engine-engine-1` 显示 `(healthy)` 即就绪。
-- 升级旧镜像：先 `bash scripts/build_docker.sh`，再 `docker compose up -d --build`（避免复用同 tag 旧镜像）。
+- 升级旧镜像：先 `bash scripts/build_docker.sh`（顺带出离线包），再 `docker compose up -d --build`（避免复用同 tag 旧镜像）。
 - 冒烟验证：`bash scripts/docker_smoke.sh`（8 项断言：`/health`、HTTP create+stat、gRPC 经 HAProxy 调用、
   stats 默认凭据 200/错误 401、引擎端口回环隔离、非 root 运行、Celery 端到端（worker 进程 + HTTP async
   建图至 success）、容器内 CLI/MCP 冒烟；`--force-build` 可强制重建）。

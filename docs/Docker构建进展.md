@@ -16,7 +16,7 @@
 | `docker/entrypoint.sh` | 入口脚本：envsubst 自动渲染引擎端口 + stats 凭据 → 拉起 http/grpc（仅回环，可选 worker）→ 就绪探测 fail-fast → 前台 HAProxy，TERM/INT 转发 |
 | `docker/.env.example` | 生产环境变量模板 |
 | `docker-compose.yml` | 单服务栈：`18180→8080`、`18151→50051`、`8406→8404`；卷 `engine_data`/`engine_logs`；healthcheck 经 HAProxy |
-| `scripts/build_docker.sh` | 构建脚本（`--no-cache` / `--pull` 可选，IMAGE_TAG 可覆盖，默认 `graph-engine:<pyproject 版本>`，输出镜像体积） |
+| `scripts/build_docker.sh` | 构建脚本（`--no-cache` / `--pull` 可选，IMAGE_TAG 可覆盖，默认 `graph-engine:<pyproject 版本>`，输出镜像体积）；**2026-09-23 起默认 `docker save \| gzip` 导出 `docker/images/<tag>.tar.gz`**（`--no-save` 只构建，见文末「导出离线包补齐」） |
 | `scripts/docker_smoke.sh` | 冒烟：/health、HTTP create+stat、gRPC 经 HAProxy、stats 凭据、回环隔离、非 root |
 | `.dockerignore` | 排除 .venv/tests/data/logs/docker/images（97M tar）等 |
 | `docs/Docker部署与HAProxy.md` | 部署文档（拓扑、构建、启动、环境变量、验证示例） |
@@ -72,3 +72,25 @@
   `/proc/*/cmdline`（冒烟脚本步骤 7a 即此法）。
 - 同一 `kbId` 重复 `POST /api/v1/graph/graphs` 返回 **409**（唯一约束，非故障）。
 - CLI 命令为**顶层结构**：`graph-engine create|stat|...`，不存在 `graph-engine graph stat`（会打印 usage 报错）。
+
+## 导出离线包补齐（2026-09-23）
+
+- 背景：兄弟仓 `ikc-core-service` / `ikc-open-platform` 的 `scripts/build_docker.sh` 默认「构建 + `docker save`」
+  出离线包，本仓此前只有构建（导出要照手册第 3 节手工敲）；ikc-demo 的 `scripts/start-stack.sh` 也只是把镜像
+  按 `ikc-graph-engine:0.1.0` 就地补别名，不带包。
+- 改动（**只动脚本与文档，未改 `Dockerfile` / 镜像内容**）：
+  - `scripts/build_docker.sh`：默认构建后 `docker save "$IMAGE_TAG" | gzip > docker/images/<tag>.tar.gz`
+    （文件名由 tag 推导，`:`/`/` → `_`；`ikc-graph-engine:0.1.0` → `ikc-graph-engine_0.1.0.tar.gz`）；
+    新增 `--no-save`（只构建），头部注释同步用法 / 环境变量 / 产物 / 手册章节指引。
+  - `.gitignore`：离线包扩展名一并排除（`docker/images/*.tar.gz`、`*.tgz`），避免 GB 级产物误入库。
+  - 文档同步：`docs/本地Docker部署手册.md`（§0 TL;DR、§2.2、§3 导出、§9 升级回滚、§12 差异表）、
+    `docs/Docker部署与HAProxy.md`（§2 构建、§3 升级）、`README.md`、`AGENTS.md`。
+- 实测（本机 2026-09-23，镜像 `ikc-graph-engine:0.1.0` = `sha256:b0b3c1d11b7b`，11.3 GB）：
+  - 导出产物 `docker/images/ikc-graph-engine_0.1.0.tar.gz` **3.4 GB**（`docker save | gzip` 约 2 分钟）。
+  - `tar -tzf` 结构正常（OCI 布局 `blobs/sha256/*`）、`gzip -t` 整包读取通过（约 20 s）。
+  - `--no-save` 跳过导出；未知参数打印 usage 且 `exit=1`；产物被 `.gitignore` 命中（`git status` 无新文件）。
+- 验证方式说明：为免把**已验证镜像**的 tag 挪到新构建上（`requirements.txt` 里的 `fastapi`/`uvicorn`/`pydantic`/
+  `grpcio`/`protobuf`/`celery` 都是 `>=`，重建会重新解析、有漂移风险），本次**未重跑 `docker build`**——
+  用 PATH 上的 `docker build` 桩跳过构建、只跑脚本的导出路径，因此 `scripts/docker_smoke.sh` 也未复跑
+  （`Dockerfile` 与镜像内容未变）。需要「构建 + 导出」全量复验时：`bash scripts/build_docker.sh`
+  （依赖层未失效时约分钟级）→ `bash scripts/docker_smoke.sh`。

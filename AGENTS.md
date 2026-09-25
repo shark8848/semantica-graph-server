@@ -14,7 +14,7 @@ Semantica Graph Engine：把已安装的 `semantica`（0.6.5）封装为对外�
 - `graph_engine/domain/models.py` — 图谱资产的**引擎内部记录类型**；线缆形状（camelCase）经
   `ikc-sdk-lib` 图谱模型校验后序列化，字段清单不在本仓维护（见 §依赖契约（`ikc-sdk-lib`））。
 - `graph_engine/adapters/` — semantica 集成（守卫式导入）+ SQLite 持久化。
-- `docker/` + `Dockerfile` — 单镜像部署（图引擎 + HAProxy 代理层）；`scripts/build_docker.sh`（构建）、`scripts/docker_smoke.sh`（冒烟）。
+- `docker/` + `Dockerfile` — 单镜像部署（图引擎 + HAProxy 代理层）；`scripts/build_docker.sh`（构建 + `docker save` 导出离线包，`--no-save` 跳过）、`scripts/docker_smoke.sh`（冒烟）。
 - 新增代码按此分层放置，并保持 `docs/解决方案.md` 与接口 envelope 语义同步。
 
 ## Build, Test, and Development Commands
@@ -22,7 +22,7 @@ Semantica Graph Engine：把已安装的 `semantica`（0.6.5）封装为对外�
 - 安装：`.venv/bin/pip install -e . --no-build-isolation`
 - 测试：`.venv/bin/pip install -e '.[test]' --no-build-isolation` 后 `.venv/bin/python -m pytest tests -q`
 - 本地启动：`graph-engine serve http`（默认 18010）/ `serve grpc` / `serve worker` / `serve mcp`
-- Docker：`bash scripts/build_docker.sh` → `docker compose up -d`（对外 HTTP 18180 / gRPC 18151 / stats 8406）→ `bash scripts/docker_smoke.sh`
+- Docker：`bash scripts/build_docker.sh`（构建 + 导出 `docker/images/*.tar.gz`）→ `docker compose up -d`（对外 HTTP 18180 / gRPC 18151 / stats 8406）→ `bash scripts/docker_smoke.sh`
 
 ## Coding Style & Naming Conventions
 
