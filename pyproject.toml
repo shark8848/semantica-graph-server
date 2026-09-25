@@ -16,8 +16,8 @@ dependencies = [
   "pydantic>=2.0",
   # 跨层共享模型/协议 SDK（跨仓归位契约）：图谱资产对象（G8）、traceId 纯函数（G2）、
   # 引擎作业视图与状态映射（G3）的**字段形状单一来源**。本地 wheel 安装：
-  #   pip install /home/sharkyai/ikc-sdk-lib/dist/ikc_sdk_lib-0.8.3-py3-none-any.whl
-  "ikc-sdk-lib==0.8.3",
+  #   pip install /home/sharkyai/ikc-sdk-lib/dist/ikc_sdk_lib-0.12.1-py3-none-any.whl
+  "ikc-sdk-lib==0.12.1",
   "grpcio>=1.81",
   "protobuf>=5.29",
   # 带 redis extra：Celery broker/backend 走 Redis，缺 redis-py 时 worker 启动即崩

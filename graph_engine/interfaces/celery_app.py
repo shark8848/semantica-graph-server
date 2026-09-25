@@ -1,7 +1,8 @@
 """Celery 协议面：异步任务（build / merge / deprecate / export）。
 
-任务与 HTTP async 模式共用 application 层；broker/backend 由环境变量配置，
-默认 redis://localhost:6379/0。celery_enabled（GRAPH_ENGINE_CELERY_ENABLED）
+任务与 HTTP async 模式共用 application 层；连接形态（单机 / 副本 / 哨兵）由
+GRAPH_ENGINE_CELERY_* 环境变量经 ikc_sdk.celery 解析，默认 redis://localhost:6379/0。
+celery_enabled（GRAPH_ENGINE_CELERY_ENABLED）
 为 False 时只登记 pending job、不投递，也绝不触碰 broker。
 """
 
@@ -10,7 +11,7 @@ from __future__ import annotations
 import logging
 from typing import Any, Callable
 
-from celery import Celery
+from ikc_sdk.celery import CeleryFactory
 
 from ..config import Settings
 from ..runtime import get_service
@@ -21,10 +22,13 @@ _settings = Settings()
 
 logger = logging.getLogger(__name__)
 
-celery_app = Celery(
+# 单机 / 副本形态以 Settings 派生 URL 为准（工厂的入参口径）；哨兵形态由
+# GRAPH_ENGINE_CELERY_SENTINEL_* 生成，入参与 GRAPH_ENGINE_CELERY_BROKER* 都不参与。
+celery_app = CeleryFactory.create(
     "graph_engine",
-    broker=_settings.celery_broker,
-    backend=_settings.celery_backend,
+    prefix="GRAPH_ENGINE_CELERY",
+    broker_url=_settings.celery_broker,
+    result_backend=_settings.celery_backend,
 )
 
 celery_app.conf.update(
