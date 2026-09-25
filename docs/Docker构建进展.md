@@ -94,3 +94,15 @@
   用 PATH 上的 `docker build` 桩跳过构建、只跑脚本的导出路径，因此 `scripts/docker_smoke.sh` 也未复跑
   （`Dockerfile` 与镜像内容未变）。需要「构建 + 导出」全量复验时：`bash scripts/build_docker.sh`
   （依赖层未失效时约分钟级）→ `bash scripts/docker_smoke.sh`。
+
+## 2026-09-25 — 构建脚本缺省 tag 对齐 `ikc-*`
+
+- 背景：ikc-demo 全栈要求镜像名一律 `ikc-*`（此前靠 `start-stack.sh` 补别名 / 构建时显式
+  `IMAGE_TAG=ikc-graph-engine:0.1.0` 覆盖）。
+- 改动：`scripts/build_docker.sh` 与 `scripts/docker_smoke.sh` 的缺省 `IMAGE_TAG` → `ikc-graph-engine:<版本>`；
+  `docker-compose.yml` 的 `image:` 同步（`build → compose up` 同口径）；`docs/本地Docker部署手册.md` 的
+  镜像名 / 产物名 / `docker compose config --images` 期望值同步；本文件更早内容与 `docs/进展-*.md`
+  属历史记录，按原样保留。
+- 产物名随之变为 `docker/images/ikc-graph-engine_0.1.0.tar.gz`（本次只改脚本与文档，未重跑构建）。
+- 要原生名可显式覆盖：`IMAGE_TAG=graph-engine:0.1.0 bash scripts/build_docker.sh`。
+- 验证：两个脚本 `bash -n` 通过；`rg` 复核缺省 tag 与 compose `image:` 一致。

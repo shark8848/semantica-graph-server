@@ -25,7 +25,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    image: graph-engine:0.1.0
+    image: ikc-graph-engine:0.1.0
     restart: unless-stopped
     extra_hosts:
       # 让容器内经 host.docker.internal 访问宿主本地 redis（host-gateway 映射宿主网关 IP）

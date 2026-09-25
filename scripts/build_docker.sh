@@ -15,8 +15,8 @@ set -euo pipefail
 #   bash scripts/build_docker.sh --pull         # 先拉取最新基础镜像
 #
 # 环境变量：
-#   IMAGE_TAG   镜像名:标签（默认 graph-engine:<版本>，版本取自 pyproject.toml；
-#               示例：IMAGE_TAG=ikc-graph-engine:0.1.0 bash scripts/build_docker.sh）
+#   IMAGE_TAG   镜像名:标签（默认 ikc-graph-engine:<版本>，版本取自 pyproject.toml；
+#               ikc-* 是本栈口径，覆盖示例：IMAGE_TAG=graph-engine:0.1.0 bash scripts/build_docker.sh）
 #
 # 产物：docker/images/<image_tag，`:`/`/` 换成 `_`>.tar.gz；目标机 `docker load -i` 即可
 #       （传输 / 导入 / 回滚见 docs/本地Docker部署手册.md 第 3、4、9 节）。
@@ -47,7 +47,7 @@ fi
 
 # 版本取自 pyproject.toml（如 0.1.0）
 VERSION="$(sed -n 's/^version = "\([0-9][0-9.]*\)".*/\1/p' pyproject.toml | head -1)"
-IMAGE_TAG="${IMAGE_TAG:-graph-engine:${VERSION:-0.1.0}}"
+IMAGE_TAG="${IMAGE_TAG:-ikc-graph-engine:${VERSION:-0.1.0}}"
 
 build_args=(--build-arg "VERSION=${VERSION:-0.1.0}" --progress=plain)
 [[ "$NO_CACHE" == "1" ]] && build_args+=(--no-cache)

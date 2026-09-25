@@ -18,7 +18,7 @@ FORCE_BUILD=0
 [[ "${1:-}" == "--force-build" ]] && FORCE_BUILD=1
 
 VERSION="$(sed -n 's/^version = "\([0-9][0-9.]*\)".*/\1/p' pyproject.toml | head -1)"
-IMAGE_TAG="${IMAGE_TAG:-graph-engine:${VERSION:-0.1.0}}"
+IMAGE_TAG="${IMAGE_TAG:-ikc-graph-engine:${VERSION:-0.1.0}}"
 HTTP_PORT="${HAPROXY_HTTP_PORT:-18180}"
 GRPC_PORT="${HAPROXY_GRPC_PORT:-18151}"
 STATS_PORT="${HAPROXY_STATS_PORT:-8406}"

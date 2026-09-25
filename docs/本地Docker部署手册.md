@@ -19,8 +19,8 @@
 
 ```bash
 cd /home/sharkyai/semantica-graph-server
-bash scripts/build_docker.sh        # 构建 graph-engine:0.1.0（多阶段；首次下载 torch 等大依赖）
-                                    # 同时导出离线包 docker/images/graph-engine_0.1.0.tar.gz（--no-save 可跳过）
+bash scripts/build_docker.sh        # 构建 ikc-graph-engine:0.1.0（多阶段；首次下载 torch 等大依赖）
+                                    # 同时导出离线包 docker/images/ikc-graph-engine_0.1.0.tar.gz（--no-save 可跳过）
 docker compose up -d                # 启动（HAProxy 入口 18180 HTTP / 18151 gRPC / 8406 stats）
 curl -s http://127.0.0.1:18180/health
 bash scripts/docker_smoke.sh        # 8 项冒烟（脚本内部会自行 compose up/down）
@@ -30,7 +30,7 @@ bash scripts/docker_smoke.sh        # 8 项冒烟（脚本内部会自行 compos
 
 | 镜像:标签 | 体积（估算） | 来源 | 用途 |
 | --- | --- | --- | --- |
-| `graph-engine:0.1.0` | 实测 `docker images` **11.3 GB**（`image inspect .Size` 3.65 GB） | `Dockerfile` 多阶段（`builder` → `python:3.12-slim` runtime） | 单镜像内含引擎（HTTP/gRPC/Celery/MCP/CLI）+ HAProxy 代理层 + gettext(envsubst) |
+| `ikc-graph-engine:0.1.0` | 实测 `docker images` **11.3 GB**（`image inspect .Size` 3.65 GB） | `Dockerfile` 多阶段（`builder` → `python:3.12-slim` runtime） | 单镜像内含引擎（HTTP/gRPC/Celery/MCP/CLI）+ HAProxy 代理层 + gettext(envsubst) |
 
 容器内拓扑（引擎只监听回环，对外唯一入口为 HAProxy）：
 
@@ -70,12 +70,11 @@ ss -ltn | grep -E ':(18180|18151|8406)\b'       # 应无输出（端口空闲）
 
 ```bash
 cd /home/sharkyai/semantica-graph-server
-bash scripts/build_docker.sh              # 版本取自 pyproject.toml → graph-engine:0.1.0（并导出 docker/images/*.tar.gz）
+bash scripts/build_docker.sh              # 版本取自 pyproject.toml → ikc-graph-engine:0.1.0（并导出 docker/images/*.tar.gz）
 bash scripts/build_docker.sh --no-save    # 只构建，不导出离线包
 bash scripts/build_docker.sh --no-cache   # 需要强制重建依赖层时
 bash scripts/build_docker.sh --pull       # 先拉最新 python:3.12-slim 基础镜像
 IMAGE_TAG=graph-engine:test bash scripts/build_docker.sh   # 自定义 tag（compose 需同步改 image；导出名随 tag）
-IMAGE_TAG=ikc-graph-engine:0.1.0 bash scripts/build_docker.sh  # ikc-demo 的 start-stack.sh 用的 ikc-* 口径
 ```
 
 - 多阶段：`builder` 装齐引擎依赖（semantica 0.6.5 → torch/transformers/spacy/opencv 等大依赖，
@@ -83,7 +82,7 @@ IMAGE_TAG=ikc-graph-engine:0.1.0 bash scripts/build_docker.sh  # ikc-demo 的 st
   改代码不重复下载大依赖；`runtime` 只复制安装产物 + HAProxy/gettext。
 - 构建完成后脚本打印镜像体积；`docker images | grep graph-engine` 可核验。
 - **离线包**：构建完成后脚本自动 `docker save | gzip` 导出到 `docker/images/<tag>.tar.gz`
-  （文件名由 tag 推导，`:`/`/` 换成 `_`：`graph-engine:0.1.0` → `graph-engine_0.1.0.tar.gz`）。
+  （文件名由 tag 推导，`:`/`/` 换成 `_`：`ikc-graph-engine:0.1.0` → `ikc-graph-engine_0.1.0.tar.gz`）。
   数 GB 镜像 gzip 需几分钟；只重建镜像、不要包时加 `--no-save`。
 - **实测**：本机单次构建约 13–15 分钟（`requirements.txt` 变更会触发依赖层重装，需重新下载
   torch/nvidia 等数 GB wheel）；仅改 `graph_engine/` 代码时依赖层命中缓存，构建在分钟级完成。
@@ -122,8 +121,7 @@ RUN pip install --no-cache-dir --timeout 300 --retries 15 --find-links ./wheels 
 
 ```bash
 cd /home/sharkyai/semantica-graph-server
-bash scripts/build_docker.sh                                    # → docker/images/graph-engine_0.1.0.tar.gz
-IMAGE_TAG=ikc-graph-engine:0.1.0 bash scripts/build_docker.sh   # → docker/images/ikc-graph-engine_0.1.0.tar.gz
+bash scripts/build_docker.sh                                    # → docker/images/ikc-graph-engine_0.1.0.tar.gz
 docker images | grep graph-engine                               # 核验镜像与 tag
 ```
 
@@ -131,8 +129,8 @@ docker images | grep graph-engine                               # 核验镜像�
 
 ```bash
 mkdir -p docker/images
-docker save graph-engine:0.1.0 | gzip > docker/images/graph-engine_0.1.0.tar.gz
-# 或：docker save -o docker/images/graph-engine_0.1.0.tar graph-engine:0.1.0
+docker save ikc-graph-engine:0.1.0 | gzip > docker/images/ikc-graph-engine_0.1.0.tar.gz
+# 或：docker save -o docker/images/ikc-graph-engine_0.1.0.tar ikc-graph-engine:0.1.0
 ```
 
 compose 侧文件与校验和仍手工打包：
@@ -141,14 +139,14 @@ compose 侧文件与校验和仍手工打包：
 tar czf docker/images/graph-engine-compose-0.1.0.tgz \
   docker-compose.yml docker/.env.example config/engine.example.yaml docs/本地Docker部署手册.md
 
-cd docker/images && sha256sum graph-engine_0.1.0.tar.gz graph-engine-compose-0.1.0.tgz \
+cd docker/images && sha256sum ikc-graph-engine_0.1.0.tar.gz graph-engine-compose-0.1.0.tgz \
   > graph-engine-0.1.0-SHA256SUMS.txt
 ```
 
 传输（scp / rsync / U 盘均可）：
 
 ```bash
-scp docker/images/graph-engine_0.1.0.tar.gz \
+scp docker/images/ikc-graph-engine_0.1.0.tar.gz \
     docker/images/graph-engine-compose-0.1.0.tgz \
     docker/images/graph-engine-0.1.0-SHA256SUMS.txt \
     root@SERVER:/opt/graph-engine/_release/
@@ -163,9 +161,9 @@ mkdir -p /opt/graph-engine && cd /opt/graph-engine
 tar xzf _release/graph-engine-compose-0.1.0.tgz
 sha256sum -c _release/graph-engine-0.1.0-SHA256SUMS.txt
 
-docker load -i _release/graph-engine_0.1.0.tar.gz
+docker load -i _release/ikc-graph-engine_0.1.0.tar.gz
 docker images | grep graph-engine       # 与第 1 节清单一致
-docker compose config --images          # 应为 graph-engine:0.1.0
+docker compose config --images          # 应为 ikc-graph-engine:0.1.0
 ```
 
 ## 5. 配置 `.env`
@@ -312,7 +310,7 @@ docker run -d --name graph-engine --restart unless-stopped \
   -v /opt/graph-engine/logs:/app/logs \
   --env-file /opt/graph-engine/.env \
   -p 18180:8080 -p 18151:50051 -p 8406:8404 \
-  graph-engine:0.1.0
+  ikc-graph-engine:0.1.0
 ```
 
 验证与第 6 节相同（`docker compose ps` 换成 `docker ps --filter name=graph-engine`，
@@ -327,7 +325,7 @@ docker run -d --name graph-engine-worker --restart unless-stopped \
   --add-host host.docker.internal:host-gateway \
   -v /opt/graph-engine/data:/app/data \
   --env-file /opt/graph-engine/.env \
-  --entrypoint graph-engine graph-engine:0.1.0 serve worker
+  --entrypoint graph-engine ikc-graph-engine:0.1.0 serve worker
 ```
 
 - 两者必须挂同一数据目录（同一 SQLite），且 broker/backend 可达；此时主容器把
@@ -356,7 +354,7 @@ bash scripts/build_docker.sh
 docker compose up -d --build          # 避免复用同 tag 旧镜像
 
 # 目标机（离线包路径）
-docker load -i _release/graph-engine_0.1.0.tar.gz
+docker load -i _release/ikc-graph-engine_0.1.0.tar.gz
 docker compose up -d --no-build
 
 # 回滚：保留上一个 tar，load 后用同一份 compose 重建
