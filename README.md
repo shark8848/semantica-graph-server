@@ -83,3 +83,6 @@ with GraphEngineClient("http://127.0.0.1:18010") as client:
 - 部署手册（本机构建 → 启动验证 → 离线镜像导出/导入 → 非 compose `docker run` → 升级回滚 → 排障）：
   `docs/本地Docker部署手册.md`；速查版：`docs/Docker部署与HAProxy.md`
 - 冒烟验证：`bash scripts/docker_smoke.sh`（HTTP/gRPC/stats/回环隔离/非 root/Celery 端到端/MCP 与 CLI 八项）
+- 可选外部图库 Neo4j（引擎当前**不读**它，只是预留扩展位）：`bash scripts/build_neo4j.sh` 准备
+  `ikc-neo4j:<版本>` 镜像（上游官方镜像不重编，缺省导出离线包）；`bash scripts/docker-run-neo4j.sh {start,status,logs,restart,stop}`
+  管理独立容器（`--restart unless-stopped`，宿主重启自动拉起；7474 Browser / 7687 Bolt）

@@ -32,6 +32,12 @@ bash scripts/docker_smoke.sh        # 8 项冒烟（脚本内部会自行 compos
 | --- | --- | --- | --- |
 | `ikc-graph-engine:0.1.0` | 实测 `docker images` **11.3 GB**（`image inspect .Size` 3.65 GB） | `Dockerfile` 多阶段（`builder` → `python:3.12-slim` runtime） | 单镜像内含引擎（HTTP/gRPC/Celery/MCP/CLI）+ HAProxy 代理层 + gettext(envsubst) |
 
+**外部依赖镜像（可选；不走本仓 `Dockerfile`，由独立脚本准备，见 2.4 / 7.5）**：
+
+| 镜像:标签 | 体积（实测 2026-09-26） | 来源 | 用途 |
+| --- | --- | --- | --- |
+| `ikc-neo4j:5.26-community` | `docker images` **986 MB**（离线包 gzip 后 347 MB） | `scripts/build_neo4j.sh`（上游 `neo4j:5.26-community`，**不重编**，只打 `ikc-*` 名） | Neo4j 5.x LTS community，独立容器（`scripts/docker-run-neo4j.sh`，宿主端口 7474 HTTP / 7687 Bolt）；**引擎当前不读它**（图数据仍落 SQLite），仅作 `semantica.graph_store` 外部图库后端预留 |
+
 容器内拓扑（引擎只监听回环，对外唯一入口为 HAProxy）：
 
 ```
@@ -115,6 +121,26 @@ RUN pip install --no-cache-dir --timeout 300 --retries 15 --find-links ./wheels 
 
 > 两条路径都必须在 builder 内完成依赖安装；`runtime` 阶段是 `COPY --from=builder`，不重新联网装包。
 
+### 2.4 Neo4j（可选外部依赖，非本仓 `Dockerfile` 构建）
+
+引擎运行时**不需要** Neo4j（图数据仍落 SQLite `GRAPH_ENGINE_DB_PATH`）；这是给 `docs/解决方案.md` §7
+「切 `semantica.graph_store` 外部图库后端（Neo4j/FalkorDB）」预留的依赖。脚本只取上游官方镜像 + 打 `ikc-*` 名，
+**不重编**（没有 `Dockerfile.neo4j`）：
+
+```bash
+cd /home/sharkyai/semantica-graph-server
+bash scripts/build_neo4j.sh              # pull → tag ikc-neo4j:5.26-community → 导出离线包
+bash scripts/build_neo4j.sh --no-save    # 只准备镜像（本次实测 986 MB），不导出
+bash scripts/build_neo4j.sh --no-pull    # 不联网：只用本地已有镜像
+NEO4J_VERSION=5.26.1-community bash scripts/build_neo4j.sh   # 换上游版本（tag / 产物名随之）
+# Docker Hub 直连不通时，指向可用镜像源 / 内网 registry：
+NEO4J_BASE_IMAGE=hub.rat.dev/library/neo4j:5.26-community bash scripts/build_neo4j.sh
+```
+
+> 本机实测（2026-09-26）：`docker.io` 直连被网络阻断（`dial tcp ...:443: i/o timeout`），
+> 改用 `hub.rat.dev` 镜像源拉取成功；受限网络按上面最后一条覆写 `NEO4J_BASE_IMAGE` 即可。
+> 未指定 `NEO4J_BASE_IMAGE` 时缺省走 `neo4j:<NEO4J_VERSION>`（官方 registry）。
+
 ## 3. 导出镜像与部署包（迁移到其它机器时）
 
 镜像包由 `scripts/build_docker.sh` **默认导出**（与 ikc-core-service / ikc-open-platform 同口径）：
@@ -150,6 +176,19 @@ scp docker/images/ikc-graph-engine_0.1.0.tar.gz \
     docker/images/graph-engine-compose-0.1.0.tgz \
     docker/images/graph-engine-0.1.0-SHA256SUMS.txt \
     root@SERVER:/opt/graph-engine/_release/
+```
+
+### 3.1 Neo4j 离线包（可选）
+
+```bash
+bash scripts/build_neo4j.sh        # → docker/images/ikc-neo4j_5.26-community.tar.gz（本机实测 347 MB）
+scp docker/images/ikc-neo4j_5.26-community.tar.gz root@SERVER:/opt/graph-engine/_release/
+```
+
+目标机侧（无需联网；`--load` 会 `docker load` 并补齐 `ikc-neo4j:<版本>` 名）：
+
+```bash
+NEO4J_VERSION=5.26-community bash scripts/build_neo4j.sh --load /opt/graph-engine/_release/ikc-neo4j_5.26-community.tar.gz
 ```
 
 ## 4. 目标机导入
@@ -332,6 +371,32 @@ docker run -d --name graph-engine-worker --restart unless-stopped \
   `GRAPH_ENGINE_CELERY_ENABLED` 设为 `0`，避免重复消费。
 - 简单场景建议直接用 7.3 单容器（worker 随引擎在容器内启动）。
 
+### 7.5 Neo4j（可选外部图库，独立容器、不进 compose）
+
+引擎**不依赖**它；要用外部图库后端时才起。容器 `/data` 等落命名卷，与本栈 `graph-engine_engine_data` 互不影响。
+
+```bash
+bash scripts/docker-run-neo4j.sh start     # 幂等：[create] / [start] / [recreate]（镜像变过）/ [skip]（在跑且一致）
+bash scripts/docker-run-neo4j.sh status    # 状态 + cypher-shell 探活 + 连接信息
+bash scripts/docker-run-neo4j.sh logs 200  # 跟日志
+bash scripts/docker-run-neo4j.sh restart   # 改端口 / 内存 / 密码后重建容器
+bash scripts/docker-run-neo4j.sh stop      # 停并删容器（命名卷 neo4j-* 保留，数据不丢）
+```
+
+- 镜像 `ikc-neo4j:5.26-community`：缺镜像时脚本自动找 `docker/images/*neo4j*.tar[.gz]` 导入（先按 2.4 / 3.1 准备）；
+  都没有则报错退出，不会静默起个空壳。
+- `--restart unless-stopped`：**宿主重启后自动拉起**（这就是「自动启动」）；`stop` 之后不会被拉起。
+- 端口与绑定见 `docker/.env.example` 的 `NEO4J_*` 段（宿主 7474 Browser / 7687 Bolt）：
+  宿主机直连 `http://127.0.0.1:7474`、`bolt://127.0.0.1:7687`；同栈容器经
+  `bolt://host.docker.internal:7687`（与宿主 Redis 同口径，故 `NEO4J_BIND` 缺省 `0.0.0.0`）。
+- 密码来源（按序）：环境变量 / `.env` 的 `NEO4J_PASSWORD` → 已有容器的 `NEO4J_AUTH` →
+  都没有则**首次 `start` 随机生成并写入 `.env`（权限 600，脚本会打印）**。数据卷建好后改密码会导致连不上
+  （Neo4j 只在空库时应用初始密码）。
+- 验收：`docker exec neo4j cypher-shell -u neo4j -p <密码> 'RETURN 1;'` 返回 `1`；
+  `docker inspect -f '{{.HostConfig.RestartPolicy.Name}}' neo4j` = `unless-stopped`。
+- **边界**：引擎代码当前**没有 Neo4j 适配器**（图数据仍落 SQLite），本节只把库起好备用；
+  接进引擎数据面（`semantica.graph_store` 后端切换）属另一次代码改动。
+
 ## 8. Celery worker 与异步建图语义
 
 - `POST /api/v1/graph/graphs/{graphId}/build` 带 `"async": true` → HTTP 进程登记 job 后投递 Celery，
@@ -402,6 +467,7 @@ docker compose up -d --no-build
 | stats 401 | 账号密码不匹配 | 用 `.env` 的 `HAPROXY_STATS_USER/PASSWORD`；默认 `admin/change-me` 仅试用，启动日志会告警 |
 | 端口被占用 | 宿主已有服务监听 | 改 `.env` 的 `HAPROXY_*_PORT` 后 `--force-recreate` |
 | 磁盘快速增长 | 镜像数 GB + 卷数据 + 构建缓存 | `docker system df`；`docker builder prune` 清构建缓存（勿误删卷） |
+| Neo4j 起不来 / `cypher-shell` 认证失败 | 数据卷里已有旧密码，或 `.env` 的 `NEO4J_PASSWORD` 被改过 | 用建卷时那把密码；确属误改只能 `docker volume rm neo4j-data` 后重新 `start`（**会清库**，先备份） |
 
 ## 11. 与 SDK / 上层服务对接
 

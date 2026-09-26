@@ -106,3 +106,30 @@
 - 产物名随之变为 `docker/images/ikc-graph-engine_0.1.0.tar.gz`（本次只改脚本与文档，未重跑构建）。
 - 要原生名可显式覆盖：`IMAGE_TAG=graph-engine:0.1.0 bash scripts/build_docker.sh`。
 - 验证：两个脚本 `bash -n` 通过；`rg` 复核缺省 tag 与 compose `image:` 一致。
+
+## 2026-09-26 — Neo4j 外部依赖：镜像准备 / 离线分发 / 容器启停
+
+背景：`docs/解决方案.md` 第 7 节把「切 semantica `graph_store` 外部图库后端（Neo4j/FalkorDB）」列为 MVP 之后的
+演进项。本轮只把 **Neo4j 作为外部依赖**准备好（可构建、可离线分发、可自动拉起），**不动引擎数据面**。
+
+| 文件 | 说明 |
+| --- | --- |
+| `scripts/build_neo4j.sh` | 准备 `ikc-neo4j:<NEO4J_VERSION>`：上游官方镜像**不重编**（`pull` → `docker tag`），缺省 `docker save \| gzip` 导出 `docker/images/ikc-neo4j_<ver>.tar.gz`；`--no-save` 只准备镜像、`--no-pull` 不联网只用本地、`--load <包>` 目标机侧导入并补齐 `ikc-neo4j` 名 |
+| `scripts/docker-run-neo4j.sh` | 容器启停：`start`（幂等：在跑 `[skip]` / 镜像变过 `[recreate]` / 停着 `[start]` / 不存在 `[create]`；缺镜像自动找 `docker/images/*neo4j*.tar[.gz]` 导入）、`stop` / `restart` / `status` / `logs` |
+| `docker/.env.example` | 新增 `NEO4J_*` 段（版本 / 密码 / 端口 / 绑定 / 内存 / 探活秒数） |
+
+关键决定（与既有约定对齐）：
+
+- **不重编**：Neo4j 是上游官方镜像，本仓只取镜像 + 打 `ikc-*` 命名（与 `build_docker.sh` 同口径），
+  故没有新增 `Dockerfile.neo4j`；受限网络可用 `NEO4J_BASE_IMAGE=<内网 registry>/neo4j:5.26-community`。
+- **不进 `docker-compose.yml`**：本栈 compose 只管 engine（不启 redis），Neo4j 与 engine 生命周期解耦，
+  单容器脚本管理更贴合部署机形态。
+- **端口**：7474（HTTP Browser）/ 7687（Bolt），与既有 18180/18151/8406 不冲突。
+- **自动启动**：容器 `--restart unless-stopped`（宿主重启自动拉起，`stop` 后不被拉起）。
+- **数据持久化**：命名卷 `neo4j-data` / `neo4j-logs` / `neo4j-plugins` / `neo4j-import`（`stop` 只删容器，不删卷）。
+- **边界（重要）**：引擎代码当前**没有任何 Neo4j 适配器**，图数据仍落 SQLite（`GRAPH_ENGINE_DB_PATH`）；
+  本轮只把 Neo4j 起好备用，接进引擎数据面属另一次代码改动（`semantica.graph_store` 后端切换）。
+
+验收口径（部署机）：`bash scripts/build_neo4j.sh --no-save` → `docker images | grep ikc-neo4j`；
+`bash scripts/docker-run-neo4j.sh start` 后 `cypher-shell -u neo4j -p <密码> 'RETURN 1;'` 通、
+`docker inspect -f '{{.HostConfig.RestartPolicy.Name}}' neo4j` = `unless-stopped`。
