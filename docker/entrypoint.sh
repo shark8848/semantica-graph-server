@@ -39,8 +39,22 @@ GRPC_PID=$!
 # 确保 broker(redis) 可达（解析 redis://host:port，python socket 探测 30 次 × 0.5s）。
 # 可达才后台启动 worker；超时打印错误并跳过 worker——HTTP/gRPC/HAProxy 不受影响，
 # 容器不因缺少 broker 而整体退出（异步任务将保持 pending，便于人工排查）。
+#
+# 探针目标必须与 Celery **同一口径**：哨兵形态下 broker URL 只由
+# GRAPH_ENGINE_CELERY_SENTINEL_NODES 生成（ikc-sdk-lib 的 CeleryFactory 明确忽略单机 URL）。
+# 若这里仍按 GRAPH_ENGINE_CELERY_BROKER 探，其缺省 host.docker.internal:6379 在站点上不可达，
+# 就会「哨兵连得上、worker 永远不启动」——异步作业全 pending。
+celery_probe_url() {
+  local nodes="${GRAPH_ENGINE_CELERY_SENTINEL_NODES:-}"
+  if [ "${GRAPH_ENGINE_CELERY_REDIS_MODE:-single}" = "sentinel" ] && [ -n "$nodes" ]; then
+    printf 'redis://%s' "${nodes%%,*}"
+  else
+    printf '%s' "${GRAPH_ENGINE_CELERY_BROKER}"
+  fi
+}
+
 celery_broker_ready() {
-  python - "${GRAPH_ENGINE_CELERY_BROKER}" <<'PY'
+  python - "$(celery_probe_url)" <<'PY'
 import socket
 import sys
 import time
@@ -64,7 +78,7 @@ PY
 CELERY_PID=""
 if [ "${GRAPH_ENGINE_CELERY_ENABLED}" = "1" ]; then
   if celery_broker_ready; then
-    echo "[info] Celery broker 可达（${GRAPH_ENGINE_CELERY_BROKER}），后台启动 worker"
+    echo "[info] Celery broker 可达（$(celery_probe_url)），后台启动 worker"
     graph-engine serve worker &
     CELERY_PID=$!
   else

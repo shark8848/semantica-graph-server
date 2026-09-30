@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "graph-engine"
-version = "0.1.1"
+version = "0.1.2"
 description = "Semantica-backed graph engine exposing HTTP/gRPC/Celery/MCP/CLI interfaces"
 requires-python = ">=3.12"
 dependencies = [
