@@ -4,13 +4,13 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "graph-engine"
-version = "0.1.0"
+version = "0.1.1"
 description = "Semantica-backed graph engine exposing HTTP/gRPC/Celery/MCP/CLI interfaces"
 requires-python = ">=3.12"
 dependencies = [
   # 核心依赖复用当前 venv 已装包；RDF/SPARQL 视图经 semantica 的
   # tripletstore-oxigraph extra 声明 pyoxigraph（venv 已装 0.5.9）
-  "semantica[tripletstore-oxigraph]==0.6.5",
+  "semantica[tripletstore-oxigraph,llm-openai]==0.6.5",
   "fastapi>=0.115",
   "uvicorn[standard]>=0.30",
   "pydantic>=2.0",

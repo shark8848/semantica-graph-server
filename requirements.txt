@@ -3,7 +3,11 @@
 # 代码改动不会重复拉取 torch 等超大依赖（见 Dockerfile builder 阶段）。
 # RDF/SPARQL 视图依赖 pyoxigraph（semantica tripletstore-oxigraph extra，
 # 当前 0.5.9 已在开发 venv 验证），镜像构建安装此 extra 后两能力可用。
-semantica[tripletstore-oxigraph]==0.6.5
+# llm-openai extra：LLM 建图增强（graph_engine/adapters/llm.py → semantica LLMExtraction →
+# OpenAIProvider）要 openai SDK 才建得出 client；缺它 provider.is_available() 恒 False，
+# 引擎静默降级成规则抽取（meta.reason="provider 不可用"）。base_url 由 openai SDK 读
+# 环境变量 OPENAI_BASE_URL（本栈 = http://ikc-aigw-api:18100/v1）即指向模型网关。
+semantica[tripletstore-oxigraph,llm-openai]==0.6.5
 fastapi>=0.115
 uvicorn[standard]>=0.30
 pydantic>=2.0
