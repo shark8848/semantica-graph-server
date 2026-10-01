@@ -13,6 +13,9 @@ export HAPROXY_STATS_PASSWORD="${HAPROXY_STATS_PASSWORD:-change-me}"
 GRAPH_ENGINE_CELERY_ENABLED="${GRAPH_ENGINE_CELERY_ENABLED:-0}"
 export GRAPH_ENGINE_CELERY_BROKER="${GRAPH_ENGINE_CELERY_BROKER:-redis://:1qaz2wsx3edc@host.docker.internal:6379/0}"
 export GRAPH_ENGINE_CELERY_BACKEND="${GRAPH_ENGINE_CELERY_BACKEND:-redis://:1qaz2wsx3edc@host.docker.internal:6379/0}"
+# 图存储后端（缺省 Neo4j）：容器视角缺省指向宿主上的 Neo4j（scripts/docker-run-neo4j.sh 起的）
+# / 同栈容器改 bolt://neo4j:7687；不可达时引擎告警降级 SQLite，不拦启动
+export GRAPH_ENGINE_NEO4J_URI="${GRAPH_ENGINE_NEO4J_URI:-bolt://host.docker.internal:7687}"
 
 # 引擎服务只监听回环，避免绕过 HAProxy 直连
 export GRAPH_ENGINE_HTTP_HOST=127.0.0.1

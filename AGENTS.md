@@ -13,7 +13,10 @@ Semantica Graph Engine：把已安装的 `semantica`（0.6.5）封装为对外�
 - `graph_engine/domain/` — 稳定 ID / schema / 合并规则（与 open-ikc 语义兼容）。
 - `graph_engine/domain/models.py` — 图谱资产的**引擎内部记录类型**；线缆形状（camelCase）经
   `ikc-sdk-lib` 图谱模型校验后序列化，字段清单不在本仓维护（见 §依赖契约（`ikc-sdk-lib`））。
-- `graph_engine/adapters/` — semantica 集成（守卫式导入）+ SQLite 持久化。
+- `graph_engine/persistence/` — 存储实现：`neo4j_store.py`（缺省后端，Neo4j Bolt 镜像落库）与
+  `sqlite_store.py`（降级/单机口径）；`create_store()` 按 `GRAPH_ENGINE_STORE_BACKEND` 选择，连接失败告警降级。
+  驱动走 `requirements-neo4j.txt`（Dockerfile 单独一层，勿并进 `requirements.txt`：会失效数 GB 依赖层）。
+- `graph_engine/adapters/` — semantica 集成（守卫式导入）。
 - `docker/` + `Dockerfile` — 单镜像部署（图引擎 + HAProxy 代理层）；`scripts/build_docker.sh`（构建 + `docker save` 导出离线包，`--no-save` 跳过）、`scripts/docker_smoke.sh`（冒烟）。
 - 新增代码按此分层放置，并保持 `docs/解决方案.md` 与接口 envelope 语义同步。
 

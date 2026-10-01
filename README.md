@@ -55,7 +55,7 @@ with GraphEngineClient("http://127.0.0.1:18010") as client:
 
 ## 核心设计
 
-- 分层：`interfaces`（五面）→ `application.GraphEngineService`（用例）→ `domain`（稳定 ID/schema/合并规则）→ `adapters`（semantica + SQLite）。
+- 分层：`interfaces`（五面）→ `application.GraphEngineService`（用例）→ `domain`（稳定 ID/schema/合并规则）→ `persistence`（存储后端：**缺省 Neo4j**，`GRAPH_ENGINE_STORE_BACKEND=sqlite` 回 SQLite）+ `adapters`（semantica）。
 - 线缆形状单一来源：`ikc-sdk-lib==0.8.3`（`ikc_sdk.core.models.graph` 图谱资产 / `core.api.graph.*` G 域接口 /
   `core.trace` 23 位 traceId / `EngineJobView` 作业视图与状态映射）——引擎只做「行 → 视图」映射与校验，
   分页壳含 `totalPages`，作业视图保留本地态 `status` 并给出外态 `taskStatus`（契约测试守护）。
@@ -83,6 +83,7 @@ with GraphEngineClient("http://127.0.0.1:18010") as client:
 - 部署手册（本机构建 → 启动验证 → 离线镜像导出/导入 → 非 compose `docker run` → 升级回滚 → 排障）：
   `docs/本地Docker部署手册.md`；速查版：`docs/Docker部署与HAProxy.md`
 - 冒烟验证：`bash scripts/docker_smoke.sh`（HTTP/gRPC/stats/回环隔离/非 root/Celery 端到端/MCP 与 CLI 八项）
-- 可选外部图库 Neo4j（引擎当前**不读**它，只是预留扩展位）：`bash scripts/build_neo4j.sh` 准备
-  `ikc-neo4j:<版本>` 镜像（上游官方镜像不重编，缺省导出离线包）；`bash scripts/docker-run-neo4j.sh {start,status,logs,restart,stop}`
-  管理独立容器（`--restart unless-stopped`，宿主重启自动拉起；7474 Browser / 7687 Bolt）
+- 图存储后端 **Neo4j（缺省）**：`bash scripts/build_neo4j.sh` 准备 `ikc-neo4j:<版本>` 镜像（上游官方镜像不重编，
+  缺省导出离线包）；`bash scripts/docker-run-neo4j.sh {start,status,logs,restart,stop}` 管理独立容器
+  （`--restart unless-stopped`，宿主重启自动拉起；7474 Browser / 7687 Bolt）。
+  引擎侧连接见 `docker/.env.example` 的 `GRAPH_ENGINE_NEO4J_*`；不可达时告警降级 SQLite（`GRAPH_ENGINE_DB_PATH`）

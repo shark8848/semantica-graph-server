@@ -1,0 +1,7 @@
+# 图存储后端的 Bolt 驱动（缺省后端 = Neo4j，见 graph_engine/config.py 的 GRAPH_ENGINE_STORE_BACKEND）。
+#
+# 为什么单独一份、不并进 requirements.txt：
+#   Dockerfile 的依赖层只随 requirements.txt 失效（semantica/torch 等数 GB，重下代价极高）；
+#   把这只驱动放独立层，代码与后端调整都不会拖着大依赖层重新下载。
+#   requirements.txt + 本文件 = 引擎完整运行时依赖（本地开发也可装 pyproject 的 [neo4j] extra）。
+neo4j>=5.0,<7

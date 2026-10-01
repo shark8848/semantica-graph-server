@@ -1,16 +1,19 @@
-"""运行时单例：存储与服务全局共享（HTTP/gRPC/Celery/MCP/CLI 复用同一实例）。"""
+"""运行时单例：存储与服务全局共享（HTTP/gRPC/Celery/MCP/CLI 复用同一实例）。
+
+存储经 `persistence.create_store` 按后端构造（缺省 Neo4j，不可用降级 SQLite）；
+显式 `db_path` 时固定 SQLite（CLI `--db-path` 与既有测试口径）。
+"""
 
 from __future__ import annotations
 
 import threading
-from typing import Any
 
 from .application.service import GraphEngineService
 from .config import Settings
-from .persistence.sqlite_store import SqliteGraphStore
+from .persistence import GraphStore, create_store
 
 _lock = threading.RLock()
-_store: SqliteGraphStore | None = None
+_store: GraphStore | None = None
 _service: GraphEngineService | None = None
 
 
@@ -18,11 +21,11 @@ def get_settings() -> Settings:
     return Settings()
 
 
-def get_store(db_path: str | None = None) -> SqliteGraphStore:
+def get_store(db_path: str | None = None) -> GraphStore:
     global _store
     with _lock:
         if _store is None:
-            _store = SqliteGraphStore(db_path or get_settings().resolved_db_path)
+            _store = create_store(db_path)
         return _store
 
 

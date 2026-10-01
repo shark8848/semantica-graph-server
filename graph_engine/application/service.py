@@ -20,7 +20,7 @@ from ..domain.ids import entity_id, graph_id, normalize_name, relation_id
 from ..domain.models import EntityRecord, GraphMeta, RelationRecord
 from ..domain.schema import validate_entity_type, validate_graph_schema, validate_relation_type
 from ..errors import InvalidParamsError, NotFoundError
-from ..persistence.sqlite_store import SqliteGraphStore
+from ..persistence import GraphStore
 
 
 def _now_iso() -> str:
@@ -85,7 +85,7 @@ class GraphEngineService:
 
     def __init__(
         self,
-        store: SqliteGraphStore,
+        store: GraphStore,
         *,
         semantica_enabled: bool = True,
         retrieval: RetrievalAdapter | None = None,

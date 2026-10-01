@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "graph-engine"
-version = "0.1.2"
+version = "0.2.0"
 description = "Semantica-backed graph engine exposing HTTP/gRPC/Celery/MCP/CLI interfaces"
 requires-python = ">=3.12"
 dependencies = [
@@ -29,6 +29,11 @@ dependencies = [
 graph-engine = "graph_engine.interfaces.cli:app"
 
 [project.optional-dependencies]
+# 图存储后端（Neo4j Bolt）驱动：镜像里由 Dockerfile 按 requirements-neo4j.txt 单独装一层
+# （不并进 requirements.txt，理由同上）；本地开发装本 extra 即可。
+neo4j = [
+  "neo4j>=5.0,<7",
+]
 test = [
   # starlette 1.6+ 的 TestClient 已弃用 httpx，需用 httpx2
   "httpx2>=2.12",

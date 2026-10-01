@@ -17,6 +17,9 @@
 #   - CELERY_BROKER_URL：完整 broker/backend URL（默认 redis://:1qaz2wsx3edc@host.docker.internal:6379/0）
 #   - GRAPH_ENGINE_CELERY_BROKER / ..._BACKEND：分别覆写（优先级最高）
 # 注意：宿主 redis 需监听 0.0.0.0 并开启密码，engine 容器才能经 host.docker.internal 访问。
+# 图存储：缺省 Neo4j（GRAPH_ENGINE_STORE_BACKEND=neo4j，Bolt 指向宿主上的 neo4j；见 docker/.env.example）
+#   起图库：bash scripts/docker-run-neo4j.sh start；口令默认复用 .env 的 NEO4J_PASSWORD
+#   不可达时引擎告警降级 SQLite（GRAPH_ENGINE_DB_PATH），不拦启动；换后端不搬运既有数据。
 
 name: graph-engine
 
@@ -25,7 +28,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    image: ikc-graph-engine:0.1.2
+    image: ikc-graph-engine:0.2.0
     restart: unless-stopped
     extra_hosts:
       # 让容器内经 host.docker.internal 访问宿主本地 redis（host-gateway 映射宿主网关 IP）
@@ -43,6 +46,13 @@ services:
       # 或分别用 GRAPH_ENGINE_CELERY_BROKER / ..._BACKEND 精调。
       GRAPH_ENGINE_CELERY_BROKER: "${GRAPH_ENGINE_CELERY_BROKER:-${CELERY_BROKER_URL:-redis://:1qaz2wsx3edc@host.docker.internal:6379/0}}"
       GRAPH_ENGINE_CELERY_BACKEND: "${GRAPH_ENGINE_CELERY_BACKEND:-${CELERY_BROKER_URL:-redis://:1qaz2wsx3edc@host.docker.internal:6379/0}}"
+      # 图存储后端：缺省 Neo4j（本机图库 = scripts/docker-run-neo4j.sh 起的 neo4j 容器，
+      # 口令默认复用 .env 的 NEO4J_PASSWORD；不可达时引擎告警降级 SQLite，不拦启动）
+      GRAPH_ENGINE_STORE_BACKEND: "${GRAPH_ENGINE_STORE_BACKEND:-neo4j}"
+      GRAPH_ENGINE_NEO4J_URI: "${GRAPH_ENGINE_NEO4J_URI:-bolt://host.docker.internal:7687}"
+      GRAPH_ENGINE_NEO4J_USER: "${GRAPH_ENGINE_NEO4J_USER:-neo4j}"
+      GRAPH_ENGINE_NEO4J_PASSWORD: "${GRAPH_ENGINE_NEO4J_PASSWORD:-${NEO4J_PASSWORD:-}}"
+      GRAPH_ENGINE_NEO4J_DATABASE: "${GRAPH_ENGINE_NEO4J_DATABASE:-neo4j}"
       # HAProxy stats 登录账号（默认 admin / change-me，生产必改）
       HAPROXY_STATS_USER: "${HAPROXY_STATS_USER:-admin}"
       HAPROXY_STATS_PASSWORD: "${HAPROXY_STATS_PASSWORD:-change-me}"

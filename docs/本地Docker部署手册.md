@@ -394,8 +394,13 @@ bash scripts/docker-run-neo4j.sh stop      # 停并删容器（命名卷 neo4j-*
   （Neo4j 只在空库时应用初始密码）。
 - 验收：`docker exec neo4j cypher-shell -u neo4j -p <密码> 'RETURN 1;'` 返回 `1`；
   `docker inspect -f '{{.HostConfig.RestartPolicy.Name}}' neo4j` = `unless-stopped`。
-- **边界**：引擎代码当前**没有 Neo4j 适配器**（图数据仍落 SQLite），本节只把库起好备用；
-  接进引擎数据面（`semantica.graph_store` 后端切换）属另一次代码改动。
+- **引擎接线（2026-10-01 起，缺省即启用）**：引擎存储后端 `GRAPH_ENGINE_STORE_BACKEND` **缺省 `neo4j`**，
+  图数据落本库；连接参数 `GRAPH_ENGINE_NEO4J_{URI,USER,PASSWORD,DATABASE}`，容器视角缺省
+  `bolt://host.docker.internal:7687`、用户 `neo4j`、口令 = 上面那把 `NEO4J_PASSWORD`。
+  用 `bolt://neo4j:7687`（容器名）需引擎与图库同网络（`ikc-demo-stack` 形态即如此）。
+  走 `host.docker.internal` 的前提是宿主发布口从容器可达：本仓 `docker-run-neo4j.sh` 的 `NEO4J_BIND` 缺省 `0.0.0.0`，
+  而若图库绑在 `127.0.0.1`（如 ikc-demo 栈），容器经 `host.docker.internal` 会连不上，须改用容器名寻址（同网络）。
+  图库不可达时引擎**告警降级 SQLite**（`GRAPH_ENGINE_DB_PATH`），不拦启动；换后端不搬运既有 `engine.db` 数据。
 
 ## 8. Celery worker 与异步建图语义
 
@@ -458,7 +463,8 @@ docker compose up -d --no-build
 | 现象 | 根因 | 处置 |
 | --- | --- | --- |
 | 容器反复重启、日志 `[error] 引擎未在 30s 内就绪` / `引擎进程退出` | 引擎自身启动失败（依赖缺失、DB 不可写等）；入口脚本 fail-fast 是有意设计 | `docker logs graph-engine-engine-1` 看引擎 traceback；常见为 `ModuleNotFoundError: ikc_sdk`（镜像未含 `ikc-sdk-lib==0.8.3`，需重建镜像） |
-| `sqlite3.OperationalError: unable to open database file` | 宿主挂载目录不可写（容器 uid 1000） | `sudo chown -R 1000:1000 <数据目录>` |
+| `sqlite3.OperationalError: unable to open database file` | 宿主挂载目录不可写（容器 uid 1000，且当前正走 SQLite 后端） | `sudo chown -R 1000:1000 <数据目录>` |
+| 引擎日志 `Neo4j 不可达（bolt://…）→ 降级 SQLite` | 图库没起 / 地址口令不对（缺省后端是 Neo4j，降级不拦启动） | `bash scripts/docker-run-neo4j.sh status`；核对 `GRAPH_ENGINE_NEO4J_*` 与 `NEO4J_PASSWORD`；确认引擎能解析到图库容器名或用 `host.docker.internal` |
 | 异步作业长期 `pending` | ①容器内 worker 未启动（broker 不可达）；②镜像缺 `redis` 包（kombu redis 传输导入失败，worker 启动即崩，日志含 `'NoneType' object has no attribute 'Redis'`） | ①确认宿主 Redis 监听 `0.0.0.0` 且有密码；②确认 `requirements.txt` 为 `celery[redis]>=5.3` 并重建镜像；`docker logs ... \| grep -i celery`；也可改同步调用（不加 `async`） |
 | `POST /api/v1/graph/graphs` 返回 409 | 同一 `kbId` 已存在图谱（幂等/唯一约束，非故障） | 换 `kbId`，或先 `GET /api/v1/graph/graphs` 找到已有 `graphId` 复用 |
 | 容器内 `ps`/`netstat` 报 not found | `python:3.12-slim` 精简镜像不含 procps/net-tools | 用 `docker top <容器>`、`docker exec <容器> graph-engine --help`，或容器 python 读 `/proc` |

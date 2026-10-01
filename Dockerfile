@@ -28,6 +28,11 @@ COPY requirements.txt ./
 RUN pip install --no-cache-dir --timeout 300 --retries 15 --upgrade pip setuptools wheel \
     && pip install --no-cache-dir --timeout 300 --retries 15 -r requirements.txt
 
+# 图存储后端驱动（Neo4j Bolt）：**单独一层**，避免把上面数 GB 的依赖层拖着重新下载
+# （见 requirements-neo4j.txt；requirements.txt 故意不含它）
+COPY requirements-neo4j.txt ./
+RUN pip install --no-cache-dir --timeout 300 --retries 15 -r requirements-neo4j.txt
+
 # 引擎本体：--no-deps 只安装 graph-engine 自身（秒级完成）
 COPY pyproject.toml ./
 COPY graph_engine/ ./graph_engine/

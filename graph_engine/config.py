@@ -54,6 +54,16 @@ class Settings:
     semantica_enabled: bool = field(
         default_factory=lambda: os.environ.get("GRAPH_ENGINE_SEMANTICA", "1") != "0"
     )
+    # 图存储后端：缺省 neo4j（外部图库 Bolt）；不可用时由持久化工厂告警降级 SQLite
+    store_backend: str = field(default_factory=lambda: _env("GRAPH_ENGINE_STORE_BACKEND", "neo4j"))
+    neo4j_uri: str = field(
+        default_factory=lambda: _env("GRAPH_ENGINE_NEO4J_URI", "bolt://localhost:7687")
+    )
+    neo4j_user: str = field(default_factory=lambda: _env("GRAPH_ENGINE_NEO4J_USER", "neo4j"))
+    neo4j_password: str = field(default_factory=lambda: _env("GRAPH_ENGINE_NEO4J_PASSWORD", ""))
+    neo4j_database: str = field(
+        default_factory=lambda: _env("GRAPH_ENGINE_NEO4J_DATABASE", "neo4j")
+    )
 
     @property
     def resolved_db_path(self) -> str:

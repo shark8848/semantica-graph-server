@@ -15,8 +15,8 @@ set -euo pipefail
 #   NEO4J_VERSION     上游版本（缺省 5.26-community）
 #   NEO4J_CONTAINER   容器名（缺省 neo4j）
 #   NEO4J_PASSWORD    初始密码（缺省读 .env → 已存在容器的 NEO4J_AUTH → 都没有则随机生成并写入 .env，权限 600）
-#   NEO4J_BIND        宿主发布绑定（缺省 0.0.0.0：引擎容器需经 host.docker.internal 访问，与宿主 redis 同口径；
-#                     只本机用可设 127.0.0.1）
+#   NEO4J_BIND        宿主发布绑定（缺省 0.0.0.0：引擎容器缺省经 host.docker.internal 访问，与宿主 redis 同口径；
+#                     引擎与图库同网络（如 ikc-demo-stack）时可设 127.0.0.1 并用容器名 bolt://neo4j:7687）
 #   NEO4J_HTTP_PORT / NEO4J_BOLT_PORT   宿主端口（缺省 7474 / 7687）
 #   NEO4J_HEAP / NEO4J_PAGECACHE        内存（缺省 512m / 512m）
 #   NEO4J_WAIT        起后等待就绪的秒数（缺省 90）
@@ -26,8 +26,9 @@ set -euo pipefail
 #   - 数据 / 日志 / 插件 / 导入落命名卷 `neo4j-data` / `neo4j-logs` / `neo4j-plugins` / `neo4j-import`。
 #   - 同栈容器接 Neo4j 用 `bolt://host.docker.internal:<NEO4J_BOLT_PORT>`（宿主发布端口，与 redis 同口径）；
 #     宿主机直连用 `bolt://127.0.0.1:<NEO4J_BOLT_PORT>`、浏览器 `http://127.0.0.1:<NEO4J_HTTP_PORT>`。
-#   - 引擎（graph_engine）当前**没有** Neo4j 适配器（图数据仍落 SQLite `GRAPH_ENGINE_DB_PATH`）：
-#     本脚本只把 Neo4j 起好备用，接进引擎数据面属另一次代码改动。
+#   - 引擎（graph_engine）**缺省就用本库**（`GRAPH_ENGINE_STORE_BACKEND=neo4j`）：引擎容器用
+#     `bolt://host.docker.internal:<NEO4J_BOLT_PORT>`（或同网络容器名 `bolt://neo4j:7687`）连接，
+#     凭据取本文件 / `.env` 的 `NEO4J_PASSWORD`；库不可达时引擎告警降级 SQLite（`GRAPH_ENGINE_DB_PATH`）。
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT_DIR"
