@@ -13,5 +13,6 @@ data
 logs
 *.log
 docker/images
-docker/wheels
+docker/wheels/*
+!docker/wheels/*.whl
 *:Zone.Identifier

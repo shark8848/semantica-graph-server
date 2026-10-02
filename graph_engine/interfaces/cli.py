@@ -63,8 +63,11 @@ def serve(
 ) -> None:
     """启动协议面服务。"""
     from ..config import Settings
+    from ..logging_setup import configure_logging
 
     settings = Settings()
+    # 进程级日志初始化（JSON + IKC Log Center 投递）；http 面在 create_app 内幂等复用
+    configure_logging(level=settings.log_level, log_center=settings.log_center)
     if kind == "http":
         import uvicorn
 

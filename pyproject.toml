@@ -29,6 +29,11 @@ dependencies = [
 graph-engine = "graph_engine.interfaces.cli:app"
 
 [project.optional-dependencies]
+# IKC Log Center SDK（远程日志投递；镜像内由 scripts/build_docker.sh 预置 wheel，
+# 非必需依赖——SDK 缺失时 graph_engine/logging_setup.py 自动降级本地日志）
+log-center = [
+  "ikc-log-center-sdk==2.0.30",
+]
 # 图存储后端（Neo4j Bolt）驱动：镜像里由 Dockerfile 按 requirements-neo4j.txt 单独装一层
 # （不并进 requirements.txt，理由同上）；本地开发装本 extra 即可。
 neo4j = [

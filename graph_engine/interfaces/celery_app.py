@@ -178,4 +178,13 @@ def dispatch_job(
 
 def worker_main(argv: list[str] | None = None) -> None:
     """启动 worker（供 `graph-engine serve worker` 调用）。"""
+    from ..logging_setup import configure_logging
+
+    configure_logging(level=_settings.log_level, log_center=_settings.log_center)
     celery_app.worker_main(argv or ["worker", "-l", "info"])
+
+
+# prefork 子进程丢失 handler 投递线程：注册 worker_process_init 重建钩子（幂等，失败不阻断）
+from ..logging_setup import attach_celery_fork_hook  # noqa: E402
+
+attach_celery_fork_hook(celery_app)

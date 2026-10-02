@@ -49,6 +49,25 @@ fi
 VERSION="$(sed -n 's/^version = "\([0-9][0-9.]*\)".*/\1/p' pyproject.toml | head -1)"
 IMAGE_TAG="${IMAGE_TAG:-ikc-graph-engine:${VERSION:-0.1.0}}"
 
+# 预置本地固定 wheel（IKC Log Center SDK：远程日志投递，**仅 log_center_sdk、不含服务端**）：
+# 版本 pin 在本仓 pyproject.toml 的 log-center extra，wheel 名按 pin 派生；镜像 Dockerfile 第一步安装。
+WHEELS_DIR="docker/wheels"
+IKC_LOG_CENTER_DIST="${IKC_LOG_CENTER_DIST:-/home/ikc-log-center/dist}"
+LOG_CENTER_VERSION="$(sed -n 's/^[[:space:]]*"ikc-log-center-sdk==\([^"]*\)",.*/\1/p' pyproject.toml | head -1)"
+if [[ -z "$LOG_CENTER_VERSION" ]]; then
+  echo "[wheel] pyproject.toml 未找到 ikc-log-center-sdk 的 == 固定版本 pin" >&2
+  exit 1
+fi
+rm -rf "$WHEELS_DIR"
+mkdir -p "$WHEELS_DIR"
+LOG_CENTER_WHEEL="ikc_log_center_sdk-${LOG_CENTER_VERSION}-py3-none-any.whl"
+if [[ ! -f "$IKC_LOG_CENTER_DIST/$LOG_CENTER_WHEEL" ]]; then
+  echo "[wheel] 缺少 $IKC_LOG_CENTER_DIST/$LOG_CENTER_WHEEL（先在该仓构建/发布）" >&2
+  exit 1
+fi
+cp "$IKC_LOG_CENTER_DIST/$LOG_CENTER_WHEEL" "$WHEELS_DIR/$LOG_CENTER_WHEEL"
+echo "[wheel] 就绪: $WHEELS_DIR/$LOG_CENTER_WHEEL"
+
 build_args=(--build-arg "VERSION=${VERSION:-0.1.0}" --progress=plain)
 [[ "$NO_CACHE" == "1" ]] && build_args+=(--no-cache)
 [[ "$PULL" == "1" ]] && build_args+=(--pull)

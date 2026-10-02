@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import logging
+import time
 from typing import Any
 
 from fastapi import FastAPI, HTTPException, Query, Request
@@ -37,9 +39,44 @@ def _handle(trace_id: str, fn) -> JSONResponse:
 
 
 def create_app(service: Any | None = None) -> FastAPI:
+    from ..config import Settings
+    from ..logging_setup import configure_logging, set_trace_id
+
+    settings = Settings()
+    configure_logging(level=settings.log_level, log_center=settings.log_center)
+
     svc = service or get_service()
     app = FastAPI(title="Semantica Graph Engine", version="0.1.0")
     router = app
+
+    access_logger = logging.getLogger("graph_engine.access")
+
+    @app.middleware("http")
+    async def _access_log(request: Request, call_next):
+        """请求访问日志（投递日志中心）：绑定 traceId 并记录方法/路径/状态/耗时。"""
+        tid = _trace(request)
+        set_trace_id(tid)
+        started = time.perf_counter()
+        try:
+            response = await call_next(request)
+        except Exception:
+            access_logger.exception(
+                "http.request method=%s path=%s status=500 duration_ms=%.1f",
+                request.method,
+                request.url.path,
+                (time.perf_counter() - started) * 1000,
+            )
+            raise
+        # 健康探针每 15s 一次，不进日志中心（避免淹没业务日志）
+        if request.url.path not in ("/health", "/ready"):
+            access_logger.info(
+                "http.request method=%s path=%s status=%s duration_ms=%.1f",
+                request.method,
+                request.url.path,
+                response.status_code,
+                (time.perf_counter() - started) * 1000,
+            )
+        return response
 
     @app.exception_handler(GraphEngineError)
     async def _graph_error_handler(request: Request, exc: GraphEngineError) -> JSONResponse:

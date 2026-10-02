@@ -34,6 +34,30 @@ def _env_int(key: str, default: str) -> int:
 
 
 @dataclass(frozen=True)
+class LogCenterSettings:
+    """IKC Log Center 远程日志投递配置（HTTP POST {url}/ingest）。"""
+
+    enabled: bool = False
+    url: str | None = None
+    token: str | None = None
+    timeout_seconds: float = 2.0
+    queue_size: int = 1000
+    batch_size: int = 50
+    module_name: str = "graph-engine"
+
+    @classmethod
+    def from_env(cls) -> "LogCenterSettings":
+        return cls(
+            enabled=_env_bool("GRAPH_ENGINE_LOG_CENTER_ENABLED", False),
+            url=_env("GRAPH_ENGINE_LOG_CENTER_URL", "") or None,
+            token=_env("GRAPH_ENGINE_LOG_CENTER_TOKEN", "") or None,
+            timeout_seconds=_env_float("GRAPH_ENGINE_LOG_CENTER_TIMEOUT", "2"),
+            queue_size=_env_int("GRAPH_ENGINE_LOG_CENTER_QUEUE_SIZE", "1000"),
+            batch_size=_env_int("GRAPH_ENGINE_LOG_CENTER_BATCH_SIZE", "50"),
+        )
+
+
+@dataclass(frozen=True)
 class Settings:
     """引擎配置：环境变量优先，缺省使用内置默认值。"""
 
@@ -48,6 +72,7 @@ class Settings:
     celery_enabled: bool = field(default_factory=lambda: _env_bool("GRAPH_ENGINE_CELERY_ENABLED", False))
     mcp_transport: str = field(default_factory=lambda: _env("GRAPH_ENGINE_MCP_TRANSPORT", "stdio"))
     log_level: str = field(default_factory=lambda: _env("GRAPH_ENGINE_LOG_LEVEL", "INFO"))
+    log_center: LogCenterSettings = field(default_factory=LogCenterSettings.from_env)
     # SPARQL/RDF 视图护栏：单次查询超时（秒，0 关闭）与单次查询返回行数上限
     sparql_timeout: float = field(default_factory=lambda: _env_float("GRAPH_ENGINE_SPARQL_TIMEOUT", "10"))
     sparql_max_rows: int = field(default_factory=lambda: _env_int("GRAPH_ENGINE_SPARQL_MAX_ROWS", "5000"))

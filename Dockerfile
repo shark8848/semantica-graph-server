@@ -33,6 +33,13 @@ RUN pip install --no-cache-dir --timeout 300 --retries 15 --upgrade pip setuptoo
 COPY requirements-neo4j.txt ./
 RUN pip install --no-cache-dir --timeout 300 --retries 15 -r requirements-neo4j.txt
 
+# 私有/本地固定 wheel（IKC Log Center SDK：远程日志投递，仅 log_center_sdk、不含服务端；
+# 由 scripts/build_docker.sh 预置）
+COPY docker/wheels/ /tmp/wheels/
+RUN test "$(find /tmp/wheels -maxdepth 1 -name '*.whl' | wc -l)" -ge 1 \
+    && pip install --no-cache-dir /tmp/wheels/*.whl \
+    && rm -rf /tmp/wheels
+
 # 引擎本体：--no-deps 只安装 graph-engine 自身（秒级完成）
 COPY pyproject.toml ./
 COPY graph_engine/ ./graph_engine/

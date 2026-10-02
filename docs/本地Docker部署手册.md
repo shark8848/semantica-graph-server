@@ -507,7 +507,7 @@ with GraphEngineClient("http://<服务器IP>:18180") as client:   # 本机直连
 | 端口 | 18011 / 50052 / 8404 | 18180 / 18151 / 8406（容器内 8080 / 50051 / 8404） |
 | 数据卷 | `openwiki-server_app_data` | `graph-engine_engine_data` / `graph-engine_engine_logs` |
 | 冒烟脚本 | 无（手册内逐条 curl） | `bash scripts/docker_smoke.sh`（8 项断言，含 gRPC/回环隔离/非 root/CLI/MCP） |
-| 额外依赖 | 镜像内置可选 `ikc-log-center` | 镜像内置必需 `ikc-sdk-lib==0.8.3`（构建/离线预置见 2.1/2.3） |
+| 额外依赖 | 镜像内置可选 `ikc-log-center-sdk`（仅 SDK，不含服务端） | 镜像内置必需 `ikc-sdk-lib==0.8.3`（构建/离线预置见 2.1/2.3） |
 
 ## 13. 相关文档
 
