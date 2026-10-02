@@ -69,18 +69,29 @@ def build_task(
     title: str = "",
     llm: bool = False,
     job_id: str = "",
+    constraints: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    """建图任务：--text 走规则抽取（可开 LLM 增强）；否则走显式记录。"""
+    """建图任务：--text 走规则抽取（可开 LLM 增强）；否则走显式记录。
+
+    ``constraints``（P4）为随作业载荷下发的抽取约束画像（人工修正沉淀），worker 侧
+    与按图沉淀画像合并后生效。
+    """
     svc = get_service()
     if text:
         return _run_job(
             job_id,
-            lambda: svc.build_from_text(graph_id, text=text, doc_id=doc_id, title=title, llm=llm),
+            lambda: svc.build_from_text(
+                graph_id, text=text, doc_id=doc_id, title=title, llm=llm, constraints=constraints
+            ),
         )
     return _run_job(
         job_id,
         lambda: svc.build_from_records(
-            graph_id, entities=entities or [], relations=relations or [], doc_id=doc_id
+            graph_id,
+            entities=entities or [],
+            relations=relations or [],
+            doc_id=doc_id,
+            constraints=constraints,
         ),
     )
 
@@ -147,12 +158,14 @@ def dispatch_job(
                 "doc_id": str(payload.get("docId") or ""),
                 "title": str(payload.get("title") or ""),
                 "llm": _flag(payload.get("llm")),
+                "constraints": payload.get("constraints") or None,
             }
         else:
             task_kwargs = {
                 "entities": payload.get("entities") or [],
                 "relations": payload.get("relations") or [],
                 "doc_id": str(payload.get("docId") or ""),
+                "constraints": payload.get("constraints") or None,
             }
     elif task == "merge":
         task_fn = merge_task

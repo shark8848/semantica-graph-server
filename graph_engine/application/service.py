@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 import uuid
 from typing import Any
@@ -16,11 +17,22 @@ from .. import adapters
 from ..adapters import core_writeback
 from ..config import Settings
 from ..adapters.retrieval import RetrievalAdapter
+from ..domain.constraints import ExtractionConstraints
 from ..domain.ids import entity_id, graph_id, normalize_name, relation_id
 from ..domain.models import EntityRecord, GraphMeta, RelationRecord
 from ..domain.schema import validate_entity_type, validate_graph_schema, validate_relation_type
 from ..errors import InvalidParamsError, NotFoundError
 from ..persistence import GraphStore
+
+
+logger = logging.getLogger("graph_engine.application")
+
+
+def _schema_relation_type(schema: dict[str, Any]) -> str:
+    """schema 推导的缺省关系类型（与 adapters.relations.relation_type_for 同口径）。"""
+    from ..adapters.relations import relation_type_for
+
+    return relation_type_for(schema)
 
 
 def _now_iso() -> str:
@@ -154,14 +166,32 @@ class GraphEngineService:
         relations: list[dict[str, Any]] | None = None,
         doc_id: str = "",
         merge: bool = True,
+        constraints: ExtractionConstraints | dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         """按记录建图：schema 校验 → 稳定 ID 派生 → semantica 建图 → 增量合并入库。
 
         响应含**已决策记录**（`entities` / `relations`，与回写载荷同一批 `to_dict()`），
         供 core 侧唯一写库方直接落库；既有 `entityCount` / `relationCount` 等键语义不变。
+
+        ``constraints``（P4）：随请求下发的抽取约束画像，与按图沉淀的画像合并后持久化；
+        记录路径只做黑名单收敛（改名会改稳定 ID 并打断关系端点，故只允许在候选阶段改名）。
         """
         meta = self._require_graph(graph_id_value)
+        profile = self._absorb_constraints(graph_id_value, constraints)
         schema = dict(meta.schema)
+        # 记录路径才做端点级联过滤：候选形态（无 entityId，文本建图的中间态）已由
+        # apply_candidates 收敛，此处按 ID 过滤会把整批关系误删。
+        record_shaped = any(
+            str(item.get("entityId") or "")
+            for item in (entities or [])
+            if isinstance(item, dict)
+        )
+        if not profile.is_empty() and record_shaped:
+            entities, relations, constraint_stats = profile.apply_records(
+                list(entities or []), list(relations or [])
+            )
+        else:
+            constraint_stats = None
         entity_records: list[EntityRecord] = []
         for item in entities or []:
             record = EntityRecord.from_dict(item, graph_id=graph_id_value)
@@ -211,6 +241,15 @@ class GraphEngineService:
         }
         # 引擎 → core 数据面回写（合并/计数/build_log/废弃/审计在 core 落地）：
         # 未配置 IKC_CORE_BASE_URL 时返回 None，返回体形状与既有行为一致。
+        if not profile.is_empty():
+            result["constraints"] = {
+                "applied": constraint_stats or {"dropped": 0},
+                "renames": len(profile.entity_renames),
+                "types": len(profile.entity_types),
+                "blacklist": len(profile.entity_blacklist),
+                "relationTypes": len(profile.relation_types),
+                "examples": len(profile.examples),
+            }
         writeback = core_writeback.write_assets(
             meta.kb_id,
             doc_id=doc_id,
@@ -229,9 +268,13 @@ class GraphEngineService:
         doc_id: str = "",
         title: str = "",
         llm: bool | None = None,
+        constraints: ExtractionConstraints | dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         """文本建图（规则抽取）：文档标题 + markdown 结构性术语（标题/粗体/行内代码）与「引号词」
         候选实体 + 同句共现关系。
+
+        ``constraints``（P4）：人工修正沉淀的抽取约束——在**派生稳定 ID 之前**对候选实体做
+        改名 / 锁类型 / 黑名单，关系按人工确认的端点对定类型；画像合并后按图持久化。
 
         ``llm`` 开启时对候选实体做 semantica LLMExtraction 增强，并对关系做 semantica
         RelationExtractor 增强（provider/依赖不可用时均确定降级）；缺省读
@@ -262,8 +305,14 @@ class GraphEngineService:
         if llm:
             entities, llm_meta = adapters.enhance_text_entities(text or "", entities)
 
+        # P4：人工修正沉淀的抽取约束（改名 / 锁类型 / 黑名单 / 样例），在稳定 ID 派生之前收敛。
+        profile = self._absorb_constraints(graph_id_value, constraints)
+        constraint_stats: dict[str, int] | None = None
+        if not profile.is_empty():
+            entities, constraint_stats = profile.apply_candidates(entities, default_type=default_type)
+
         # 关系抽取（规则共现，llm 开启时叠加 semantica 增强）：端点为实体稳定 ID，
-        # 类型受 graphSchema 约束，证据带 docId + 片段
+        # 类型受 graphSchema + 人工确认样例约束，证据带 docId + 片段
         relations = adapters.extract_text_relations(
             text or "",
             entities,
@@ -271,6 +320,13 @@ class GraphEngineService:
             graph_id_value=graph_id_value,
             doc_id=doc_id,
             llm=bool(llm),
+            type_resolver=(
+                (lambda left, right: profile.relation_type_for(
+                    str(left.get("name") or ""), str(right.get("name") or ""), _schema_relation_type(schema)
+                ))
+                if profile.relation_types
+                else None
+            ),
         )
 
         result = self.build_from_records(
@@ -278,9 +334,12 @@ class GraphEngineService:
             entities=entities,
             relations=relations,
             doc_id=doc_id,
+            constraints=constraints,
         )
         if llm_meta:
             result["llm"] = llm_meta
+        if constraint_stats is not None:
+            result.setdefault("constraints", {})["candidates"] = constraint_stats
         return result
 
     def merge_records(
@@ -316,6 +375,38 @@ class GraphEngineService:
         if writeback is not None:
             result["writeback"] = writeback
         return result
+
+    # ---------- 抽取约束画像（P4） ----------
+
+    def get_constraints(self, graph_id_value: str) -> dict[str, Any]:
+        """读该图沉淀的抽取约束画像（不存在返回空画像，不报错）。"""
+        self._require_graph(graph_id_value)
+        return ExtractionConstraints.from_dict(self.store.get_constraints(graph_id_value)).to_dict()
+
+    def put_constraints(
+        self, graph_id_value: str, constraints: dict[str, Any] | None
+    ) -> dict[str, Any]:
+        """合并写入画像（后写优先），返回合并后的完整画像。"""
+        self._require_graph(graph_id_value)
+        profile = self._absorb_constraints(graph_id_value, constraints)
+        return profile.to_dict()
+
+    def _absorb_constraints(
+        self,
+        graph_id_value: str,
+        constraints: ExtractionConstraints | dict[str, Any] | None,
+    ) -> ExtractionConstraints:
+        """把请求画像合并进按图沉淀画像并持久化（沉淀 = 下一次构建自动生效）。"""
+        stored = ExtractionConstraints.from_dict(self.store.get_constraints(graph_id_value))
+        incoming = ExtractionConstraints.from_dict(constraints)
+        if incoming.is_empty():
+            return stored
+        merged = stored.merged(incoming)
+        try:
+            self.store.put_constraints(graph_id_value, merged.to_dict())
+        except Exception as exc:  # noqa: BLE001 - 沉淀失败不阻断本次构建
+            logger.warning("抽取约束画像持久化失败（graph_id=%s）：%s", graph_id_value, exc)
+        return merged
 
     # ---------- 查询 ----------
 

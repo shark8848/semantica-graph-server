@@ -63,6 +63,11 @@ CREATE TABLE IF NOT EXISTS relations (
   updated_at        TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_relations_graph ON relations(graph_id, status, relation_type);
+CREATE TABLE IF NOT EXISTS graph_constraints (
+  graph_id         TEXT PRIMARY KEY,
+  constraints_json TEXT NOT NULL DEFAULT '{}',
+  updated_at       TEXT NOT NULL
+);
 CREATE TABLE IF NOT EXISTS jobs (
   job_id       TEXT PRIMARY KEY,
   graph_id     TEXT NOT NULL DEFAULT '',
@@ -151,7 +156,36 @@ class SqliteGraphStore:
             self._conn.execute("DELETE FROM graphs WHERE graph_id=?", (graph_id,))
             self._conn.execute("DELETE FROM entities WHERE graph_id=?", (graph_id,))
             self._conn.execute("DELETE FROM relations WHERE graph_id=?", (graph_id,))
+            self._conn.execute("DELETE FROM graph_constraints WHERE graph_id=?", (graph_id,))
             self._conn.commit()
+
+    # ---------- 抽取约束画像（P4：人工修正沉淀，按图持久化） ----------
+
+    def get_constraints(self, graph_id: str) -> dict[str, Any]:
+        with self._lock:
+            row = self._conn.execute(
+                "SELECT constraints_json FROM graph_constraints WHERE graph_id=?", (graph_id,)
+            ).fetchone()
+        if row is None:
+            return {}
+        try:
+            payload = json.loads(row["constraints_json"] or "{}")
+        except Exception:  # noqa: BLE001 - 坏 JSON 视作无画像（约束坏不能拖垮构建）
+            return {}
+        return dict(payload) if isinstance(payload, dict) else {}
+
+    def put_constraints(self, graph_id: str, constraints: dict[str, Any]) -> dict[str, Any]:
+        payload = dict(constraints or {})
+        with self._lock:
+            self.get_graph_or_raise(graph_id)
+            self._conn.execute(
+                "INSERT INTO graph_constraints(graph_id, constraints_json, updated_at) VALUES (?,?,?)"
+                " ON CONFLICT(graph_id) DO UPDATE SET"
+                " constraints_json=excluded.constraints_json, updated_at=excluded.updated_at",
+                (graph_id, json.dumps(payload, ensure_ascii=False), _now_iso()),
+            )
+            self._conn.commit()
+        return payload
 
     # ---------- entities ----------
 

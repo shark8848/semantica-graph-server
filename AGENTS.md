@@ -10,7 +10,11 @@ Semantica Graph Engine：把已安装的 `semantica`（0.6.5）封装为对外�
 - `docs/解决方案.md` — 设计方案（五面接口、分层、稳定 ID/合并/证据/置信度语义）。
 - `proto/graph/v1/graph.proto` — gRPC 权威契约；`graph_engine/interfaces/grpc_server.py` 为运行时动态 descriptor 实现。
 - `graph_engine/interfaces/` — HTTP / gRPC / Celery / MCP / CLI 五面；共用 `application.GraphEngineService`。
-- `graph_engine/domain/` — 稳定 ID / schema / 合并规则（与 open-ikc 语义兼容）。
+- `graph_engine/domain/` — 稳定 ID / schema / 合并规则（与 open-ikc 语义兼容）；`constraints.py` 为
+  **抽取约束画像**（P4：人工修正沉淀 —— 别名表 / 类型表 / 黑名单 / few-shot 样例），按图持久化在
+  `graph_constraints`（SQLite 表 / Neo4j `:GraphEngineGraphConstraint`），经 `GET|PUT /graphs/{id}/constraints`
+  与构建载荷 `constraints` 读写；`build_from_text` 在派生稳定 ID 之前应用（改名会改 ID，是期望语义），
+  `build_from_records` 只做黑名单 + 关系端点级联。
 - `graph_engine/domain/models.py` — 图谱资产的**引擎内部记录类型**；线缆形状（camelCase）经
   `ikc-sdk-lib` 图谱模型校验后序列化，字段清单不在本仓维护（见 §依赖契约（`ikc-sdk-lib`））。
 - `graph_engine/persistence/` — 存储实现：`neo4j_store.py`（缺省后端，Neo4j Bolt 镜像落库）与

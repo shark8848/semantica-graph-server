@@ -144,6 +144,7 @@ def create_app(service: Any | None = None) -> FastAPI:
                 return job
 
             return _handle(tid, _submit_and_dispatch)
+        constraints = payload.get("constraints")
         return _handle(
             tid,
             lambda: (
@@ -153,6 +154,7 @@ def create_app(service: Any | None = None) -> FastAPI:
                     doc_id=str(payload.get("docId") or ""),
                     title=str(payload.get("title") or ""),
                     llm=_flag(payload.get("llm")),
+                    constraints=constraints,
                 )
                 if payload.get("text")
                 else svc.build_from_records(
@@ -160,6 +162,7 @@ def create_app(service: Any | None = None) -> FastAPI:
                     entities=payload.get("entities") or [],
                     relations=payload.get("relations") or [],
                     doc_id=str(payload.get("docId") or ""),
+                    constraints=constraints,
                 )
             ),
         )
@@ -176,6 +179,18 @@ def create_app(service: Any | None = None) -> FastAPI:
                 doc_id=str(payload.get("docId") or ""),
             ),
         )
+
+    @app.get("/api/v1/graph/graphs/{graph_id}/constraints")
+    def graph_constraints(request: Request, graph_id: str) -> JSONResponse:
+        tid = _trace(request)
+        return _handle(tid, lambda: svc.get_constraints(graph_id))
+
+    @app.put("/api/v1/graph/graphs/{graph_id}/constraints")
+    def put_graph_constraints(
+        request: Request, graph_id: str, payload: dict[str, Any]
+    ) -> JSONResponse:
+        tid = _trace(request)
+        return _handle(tid, lambda: svc.put_constraints(graph_id, payload))
 
     @app.post("/api/v1/graph/graphs/{graph_id}/deprecate-doc")
     def deprecate_doc(request: Request, graph_id: str, payload: dict[str, Any]) -> JSONResponse:

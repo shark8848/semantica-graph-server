@@ -38,6 +38,7 @@ GRAPH_LABEL = "GraphEngineGraph"
 ENTITY_LABEL = "GraphEngineEntity"
 RELATION_LABEL = "GraphEngineRelation"
 JOB_LABEL = "GraphEngineJob"
+CONSTRAINT_LABEL = "GraphEngineGraphConstraint"
 
 _SCHEMA_STATEMENTS = (
     f"CREATE CONSTRAINT graph_engine_graph_id IF NOT EXISTS FOR (n:{GRAPH_LABEL}) REQUIRE n.graph_id IS UNIQUE",
@@ -47,6 +48,7 @@ _SCHEMA_STATEMENTS = (
     f"CREATE INDEX graph_engine_entity_graph IF NOT EXISTS FOR (n:{ENTITY_LABEL}) ON (n.graph_id, n.status)",
     f"CREATE INDEX graph_engine_relation_graph IF NOT EXISTS FOR (n:{RELATION_LABEL}) ON (n.graph_id, n.status)",
     f"CREATE INDEX graph_engine_job_graph IF NOT EXISTS FOR (n:{JOB_LABEL}) ON (n.graph_id, n.created_at)",
+    f"CREATE CONSTRAINT graph_engine_constraint_graph IF NOT EXISTS FOR (n:{CONSTRAINT_LABEL}) REQUIRE n.graph_id IS UNIQUE",
 )
 
 _T = TypeVar("_T")
@@ -157,10 +159,43 @@ class Neo4jGraphStore:
             ).single()
             if exists is None:
                 raise NotFoundError("图谱不存在", field="graphId", reason=f"graphId：{graph_id}")
-            for label in (GRAPH_LABEL, ENTITY_LABEL, RELATION_LABEL):
+            for label in (GRAPH_LABEL, ENTITY_LABEL, RELATION_LABEL, CONSTRAINT_LABEL):
                 tx.run(f"MATCH (n:{label} {{graph_id: $graph_id}}) DETACH DELETE n", graph_id=graph_id)
 
         self._write(work)
+
+    # ---------- 抽取约束画像（P4：人工修正沉淀，按图持久化） ----------
+
+    def get_constraints(self, graph_id: str) -> dict[str, Any]:
+        row = self._one(
+            f"MATCH (n:{CONSTRAINT_LABEL} {{graph_id: $graph_id}})"
+            " RETURN properties(n) AS props LIMIT 1",
+            graph_id=graph_id,
+        )
+        if not row:
+            return {}
+        raw = (row.get("props") or {}).get("constraints_json") or "{}"
+        try:
+            payload = json.loads(raw)
+        except Exception:  # noqa: BLE001 - 坏 JSON 视作无画像
+            return {}
+        return dict(payload) if isinstance(payload, dict) else {}
+
+    def put_constraints(self, graph_id: str, constraints: dict[str, Any]) -> dict[str, Any]:
+        payload = dict(constraints or {})
+        self.get_graph_or_raise(graph_id)
+
+        def work(tx: Any) -> None:
+            tx.run(
+                f"MERGE (n:{CONSTRAINT_LABEL} {{graph_id: $graph_id}})"
+                " SET n.constraints_json = $constraints_json, n.updated_at = $updated_at",
+                graph_id=graph_id,
+                constraints_json=json.dumps(payload, ensure_ascii=False),
+                updated_at=_now_iso(),
+            )
+
+        self._write(work)
+        return payload
 
     # ---------- entities ----------
 

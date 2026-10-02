@@ -25,7 +25,7 @@ from __future__ import annotations
 
 import logging
 import re
-from typing import Any
+from typing import Any, Callable
 
 from ..domain.ids import entity_id, normalize_name
 
@@ -79,8 +79,17 @@ def _located_entities(
         name = str(item.get("name") or "").strip()
         if not name:
             continue
-        probe = name.lower()
-        if probe not in haystack:
+        # 定位探针：规范名优先，其次别名（人工改名后原名进 aliases——不这样会让改名
+        # 后的实体在原文里「找不到」，丢掉它参与的全部关系）。
+        probe = next(
+            (
+                str(candidate).lower()
+                for candidate in (name, *(item.get("aliases") or []))
+                if str(candidate).strip() and str(candidate).lower() in haystack
+            ),
+            "",
+        )
+        if not probe:
             continue
         key = str(item.get("entityId") or "").strip() or entity_id(
             graph_id_value, str(item.get("type") or "concept"), normalize_name(name)
@@ -140,6 +149,7 @@ def _rule_pairs(
     *,
     relation_type: str,
     doc_id: str,
+    type_resolver: Callable[[dict[str, Any], dict[str, Any]], str] | None = None,
 ) -> dict[tuple[str, str], dict[str, Any]]:
     """规则共现：同句内两两成对（句内不见面即不产关系，避免「跨句远距离共现」噪声）。"""
     pairs: dict[tuple[str, str], dict[str, Any]] = {}
@@ -160,7 +170,11 @@ def _rule_pairs(
                     _pair(
                         present[left][1],
                         present[right][1],
-                        relation_type=relation_type,
+                        relation_type=(
+                            type_resolver(present[left][1], present[right][1])
+                            if type_resolver is not None
+                            else relation_type
+                        ),
                         doc_id=doc_id,
                         snippet=sentence,
                         method="rule_cooccurrence",
@@ -261,15 +275,22 @@ def extract_text_relations(
     graph_id_value: str = "",
     doc_id: str = "",
     llm: bool = False,
+    type_resolver: Callable[[dict[str, Any], dict[str, Any]], str] | None = None,
 ) -> list[dict[str, Any]]:
-    """文本 + 候选实体 → 已决策关系列表（规则共现为主，``llm`` 开启时叠加 semantica 增强）。"""
+    """文本 + 候选实体 → 已决策关系列表（规则共现为主，``llm`` 开启时叠加 semantica 增强）。
+
+    ``type_resolver`` 为人工修正沉淀的关系类型解析器（P4，``ExtractionConstraints``
+    提供）；缺省 None 时按 schema 推导的单一类型落边，行为与既有口径一致。
+    """
     body = text or ""
     located = _located_entities(body, entities, graph_id_value)
     if len(located) < 2:
         return []
 
     relation_type = relation_type_for(schema)
-    pairs = _rule_pairs(body, located, relation_type=relation_type, doc_id=doc_id)
+    pairs = _rule_pairs(
+        body, located, relation_type=relation_type, doc_id=doc_id, type_resolver=type_resolver
+    )
     if llm:
         try:
             for record in _semantica_pairs(
