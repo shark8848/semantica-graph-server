@@ -715,6 +715,17 @@ class GraphEngineService:
                 result = self.deprecate_doc(graph_id_value, doc_id=str(payload.get("docId") or ""))
             elif task == "export":
                 result = self.export(graph_id_value, format=str(payload.get("format") or "jsonl"))
+            elif task == "ontology_candidates":
+                result = self.generate_ontology_candidates(
+                    graph_id_value,
+                    ontology_id=str(payload.get("ontologyId") or ""),
+                    sources=payload.get("sources"),
+                    max_classes=int(payload.get("maxClasses") or 40),
+                )
+            elif task == "ontology_validate_graph":
+                result = self.validate_graph_ontology(
+                    graph_id_value, payload=payload, max_issues=int(payload.get("maxIssues") or 200)
+                )
             else:
                 raise InvalidParamsError("未知任务", field="task", reason=task)
             self.store.update_job(job_id, status="success", result=result)

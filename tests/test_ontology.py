@@ -337,3 +337,25 @@ def test_http_ontology_unknown_format_400(client):
     response = client.post("/api/v1/graph/ontology/export", json={"format": "yaml"})
     assert response.status_code == 400
     assert response.json()["errCode"] == "200001"
+
+
+def test_candidates_async_submits_job(client, svc):
+    gid = _build(svc)
+    body = client.post(
+        "/api/v1/graph/ontology/candidates", json={"graphId": gid, "async": True}
+    ).json()
+    assert body["errCode"] == "0"
+    job = body["data"]
+    assert job["jobId"] and job["status"] == "pending"
+    assert job["task"] == "ontology_candidates"
+    # Celery 未启用时只登记 pending；run_job 兜底同步执行（G-07 轮询同源）
+    done = svc.run_job(job["jobId"])
+    assert done["status"] == "success"
+    assert done["result"]["classes"]
+
+
+def test_candidates_async_missing_graph_404(client):
+    response = client.post(
+        "/api/v1/graph/ontology/candidates", json={"graphId": "graph_missing", "async": True}
+    )
+    assert response.status_code == 404

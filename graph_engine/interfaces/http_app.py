@@ -309,6 +309,20 @@ def create_app(service: Any | None = None) -> FastAPI:
     @app.post("/api/v1/graph/ontology/candidates")
     def ontology_candidates(request: Request, payload: dict[str, Any]) -> JSONResponse:
         tid = _trace(request)
+        if _flag(payload.get("async")) is True:
+            # 大图生成耗时长：登记异步作业并按 Celery 开关投递，作业 id 复用 G-07 轮询
+
+            def _submit_and_dispatch() -> dict[str, Any]:
+                svc.get_graph(str(payload.get("graphId") or ""))  # 提交前校验图谱存在（缺失 200404）
+                job = svc.submit_job("ontology_candidates", str(payload.get("graphId") or ""), payload)
+                from .celery_app import dispatch_job
+
+                dispatch_job(
+                    job["jobId"], str(payload.get("graphId") or ""), "ontology_candidates", payload
+                )
+                return job
+
+            return _handle(tid, _submit_and_dispatch)
         return _handle(
             tid,
             lambda: svc.generate_ontology_candidates(
