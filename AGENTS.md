@@ -21,6 +21,11 @@ Semantica Graph Engine：把已安装的 `semantica`（0.6.5）封装为对外�
   `sqlite_store.py`（降级/单机口径）；`create_store()` 按 `GRAPH_ENGINE_STORE_BACKEND` 选择，连接失败告警降级。
   驱动走 `requirements-neo4j.txt`（Dockerfile 单独一层，勿并进 `requirements.txt`：会失效数 GB 依赖层）。
 - `graph_engine/adapters/` — semantica 集成（守卫式导入）。
+- `graph_engine/domain/ontology.py` + `graph_engine/adapters/ontology.py` — **本体面**（O-21 ~ O-24，
+  见 `docs/设计方案-本体.md` §9）：定义视图归一 / graphSchema 推导 / 实例体检（端点 / 必填 / 基数 /
+  数据类型，只报告不阻断 D4/D5）/ 候选聚合（D6 只产候选）/ 导出（json 本地、owl·turtle·shacl 走
+  `semantica.ontology`，守卫式降级 `260009`）；编译产物快照按图按版本存 `graph_ontology`
+  （SQLite 表 / Neo4j `:GraphEngineGraphOntology`，D1 只缓存产物不存定义）。
 - `docker/` + `Dockerfile` — 单镜像部署（图引擎 + HAProxy 代理层）；`scripts/build_docker.sh`（构建 + `docker save` 导出离线包，`--no-save` 跳过）、`scripts/docker_smoke.sh`（冒烟）。
 - 新增代码按此分层放置，并保持 `docs/解决方案.md` 与接口 envelope 语义同步。
 
@@ -39,19 +44,25 @@ Semantica Graph Engine：把已安装的 `semantica`（0.6.5）封装为对外�
 
 ## Testing Guidelines
 
-- 全量回归：`.venv/bin/python -m pytest tests -q`（12 用例，覆盖 domain/存储/application/五面接口）。
+- 全量回归：`.venv/bin/python -m pytest tests -q`（**115 passed, 3 skipped**，覆盖 domain/存储/application/五面接口；含本体面 `tests/test_ontology.py` 21 例）。
 - Docker 改动必须跑 `bash scripts/docker_smoke.sh`（/health、HTTP create+stat、gRPC 经 HAProxy、stats 鉴权、回环隔离、非 root）。
 
 ## 依赖契约（`ikc-sdk-lib`，跨仓归位）
 
-- **pin**：`pyproject.toml` 与 `sdk/python/pyproject.toml` 均以 `==` 精确 pin `ikc-sdk-lib==0.8.3`
-  （2026-09-16 由 `0.7.0` 升级：0.8.x 已打标签并发布 PyPI，0.8.0/0.8.1 为 Wiki/图谱只读与 G-05 format
-  收敛、0.8.2/0.8.3 为 W-06/G-06 构建与 W-07/G-07 作业视图；本仓消费的 G8/G2/G3 形状不变）；
-  升级须同步两处 pin + 契约测试 + 本节/`docs/解决方案.md` 说明（本地 wheel 安装见各 pyproject 注释）。
+- **pin**：`pyproject.toml`、`requirements.txt` 与 `sdk/python/pyproject.toml` 均以 `==` 精确 pin
+  `ikc-sdk-lib==0.18.0`（2026-10-03 由 `0.12.1` / `0.8.3` 升级：0.18.0 为本体域契约 O-01~O-24 +
+  `260xxx` 稳定码 + `EntityRecord/RelationRecord.canonicalConceptId` 归位；本仓消费的 G8/G2/G3 形状不变，
+  新增消费 `ikc_sdk.core.models.ontology`（候选 / 报告 / 覆盖率 / 导出结果）与
+  `ikc_sdk.core.api.ontology.*` 请求模型）。引擎 venv 用本地 wheel 安装：
+  `.venv/bin/python -m pip install --no-index --no-deps --force-reinstall /home/sharkyai/ikc-sdk-lib/dist/ikc_sdk_lib-0.18.0-py3-none-any.whl`；
+  升级须同步各处 pin + 契约测试 + 本节/`docs/解决方案.md` 说明。
 - **线缆形状唯一来源**：`ikc_sdk.core.models.graph`（`GraphMeta`/`EntityView`/`RelationView`/
   `GraphPageResult`/`GraphPath`/`TypeCount`/`SchemaCoverage`）、`ikc_sdk.core.api.graph.*`
   （G-01~G-05 请求/响应）、`ikc_sdk.core.trace`（23 位 traceId）、`ikc_sdk.core.models.task`
-  （`EngineJobView` + `engine_status_to_task_status`）。**禁止在本仓自维护同形字段清单**。
+  （`EngineJobView` + `engine_status_to_task_status`）。**禁止在本仓自维护同形字段清单**；本体面另消费 `ikc_sdk.core.models.ontology`
+  （`OntologyCandidate*` / `OntologyIssue` / `OntologyValidationReport` / `OntologyCoverageView` /
+  `OntologyExportResult` / 问题码常量）与 `ikc_sdk.core.api.ontology.*` 请求模型。
+  以上为**唯一来源，禁止在本仓自维护同形字段清单**。
 - **引擎侧约定**：`domain/models.py` 的 `to_dict()`/`from_dict()` 经 sdk 模型校验与序列化
   （`exclude_unset=True`，不注入 sdk 默认值——core 视图的 `schemaVersion`/`nodeCount`/`edgeCount`
   不出现在引擎面）；`list_nodes`/`list_edges` 输出含 `totalPages`（契约字段）；作业视图保留引擎本地态

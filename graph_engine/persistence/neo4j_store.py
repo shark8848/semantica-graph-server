@@ -39,6 +39,7 @@ ENTITY_LABEL = "GraphEngineEntity"
 RELATION_LABEL = "GraphEngineRelation"
 JOB_LABEL = "GraphEngineJob"
 CONSTRAINT_LABEL = "GraphEngineGraphConstraint"
+ONTOLOGY_LABEL = "GraphEngineGraphOntology"
 
 _SCHEMA_STATEMENTS = (
     f"CREATE CONSTRAINT graph_engine_graph_id IF NOT EXISTS FOR (n:{GRAPH_LABEL}) REQUIRE n.graph_id IS UNIQUE",
@@ -49,6 +50,7 @@ _SCHEMA_STATEMENTS = (
     f"CREATE INDEX graph_engine_relation_graph IF NOT EXISTS FOR (n:{RELATION_LABEL}) ON (n.graph_id, n.status)",
     f"CREATE INDEX graph_engine_job_graph IF NOT EXISTS FOR (n:{JOB_LABEL}) ON (n.graph_id, n.created_at)",
     f"CREATE CONSTRAINT graph_engine_constraint_graph IF NOT EXISTS FOR (n:{CONSTRAINT_LABEL}) REQUIRE n.graph_id IS UNIQUE",
+    f"CREATE CONSTRAINT graph_engine_ontology_key IF NOT EXISTS FOR (n:{ONTOLOGY_LABEL}) REQUIRE (n.graph_id, n.ontology_version) IS UNIQUE",
 )
 
 _T = TypeVar("_T")
@@ -159,7 +161,7 @@ class Neo4jGraphStore:
             ).single()
             if exists is None:
                 raise NotFoundError("图谱不存在", field="graphId", reason=f"graphId：{graph_id}")
-            for label in (GRAPH_LABEL, ENTITY_LABEL, RELATION_LABEL, CONSTRAINT_LABEL):
+            for label in (GRAPH_LABEL, ENTITY_LABEL, RELATION_LABEL, CONSTRAINT_LABEL, ONTOLOGY_LABEL):
                 tx.run(f"MATCH (n:{label} {{graph_id: $graph_id}}) DETACH DELETE n", graph_id=graph_id)
 
         self._write(work)
@@ -196,6 +198,69 @@ class Neo4jGraphStore:
 
         self._write(work)
         return payload
+
+    # ---------- 编译产物快照（本体面；D1：只缓存产物，不存定义） ----------
+
+    def put_ontology(
+        self, graph_id: str, *, ontology_id: str, ontology_version: int, product: dict[str, Any]
+    ) -> dict[str, Any]:
+        version = int(ontology_version)
+        payload = dict(product or {})
+        now = _now_iso()
+        self.get_graph_or_raise(graph_id)
+
+        def work(tx: Any) -> None:
+            tx.run(
+                f"MERGE (n:{ONTOLOGY_LABEL} {{graph_id: $graph_id, ontology_version: $ontology_version}})"
+                " SET n.ontology_id = $ontology_id, n.product_json = $product_json, n.created_at = $created_at",
+                graph_id=graph_id,
+                ontology_version=version,
+                ontology_id=str(ontology_id or ""),
+                product_json=json.dumps(payload, ensure_ascii=False),
+                created_at=now,
+            )
+
+        self._write(work)
+        return {
+            "graphId": graph_id,
+            "ontologyId": str(ontology_id or ""),
+            "ontologyVersion": version,
+            "graphSchema": payload,
+            "createdAt": now,
+        }
+
+    def get_ontology(self, graph_id: str, ontology_version: int) -> dict[str, Any] | None:
+        row = self._one(
+            f"MATCH (n:{ONTOLOGY_LABEL} {{graph_id: $graph_id, ontology_version: $ontology_version}})"
+            " RETURN properties(n) AS props LIMIT 1",
+            graph_id=graph_id,
+            ontology_version=int(ontology_version),
+        )
+        if not row:
+            return None
+        return self._to_ontology(row.get("props") or {})
+
+    def list_ontologies(self, graph_id: str) -> list[dict[str, Any]]:
+        rows = self._rows(
+            f"MATCH (n:{ONTOLOGY_LABEL} {{graph_id: $graph_id}})"
+            " RETURN properties(n) AS props ORDER BY n.ontology_version DESC",
+            graph_id=graph_id,
+        )
+        return [self._to_ontology(row.get("props") or {}) for row in rows]
+
+    @staticmethod
+    def _to_ontology(props: dict[str, Any]) -> dict[str, Any]:
+        try:
+            product = json.loads(props.get("product_json") or "{}")
+        except Exception:  # noqa: BLE001 - 坏 JSON 视作空产物
+            product = {}
+        return {
+            "graphId": str(props.get("graph_id") or ""),
+            "ontologyId": str(props.get("ontology_id") or ""),
+            "ontologyVersion": int(props.get("ontology_version") or 0),
+            "graphSchema": dict(product) if isinstance(product, dict) else {},
+            "createdAt": str(props.get("created_at") or ""),
+        }
 
     # ---------- entities ----------
 

@@ -198,10 +198,22 @@ def test_mcp_retrieval_tools_and_degrade(monkeypatch, tmp_path):
     gid = _create(svc)
 
     names = {t["name"] for t in TOOLS}
-    assert len(TOOLS) == 18
+    assert len(TOOLS) == 27
     assert "graph_search" in names
     assert "graph_index_status" in names
     assert "graph_sparql" in names
+    # 本体面 9 件（O-21 ~ O-24）与图谱面并列
+    assert {
+        "graph_ontology_candidates",
+        "graph_ontology_validate",
+        "graph_ontology_ingest",
+        "graph_ontology_export",
+        "graph_ontology_validate_graph",
+        "graph_ontology_coverage",
+        "graph_ontology_snapshot",
+        "graph_ontology_versions",
+        "graph_ontology_diff",
+    } <= names
 
     handlers = _tool_handlers(svc)
     listed = _handle_request({"jsonrpc": "2.0", "id": 1, "method": "tools/list"}, handlers)

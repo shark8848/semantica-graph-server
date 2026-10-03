@@ -32,4 +32,14 @@ service GraphService {
   rpc Sparql(Envelope) returns (Envelope);
   rpc RunJob(Envelope) returns (Envelope);
   rpc GetJob(Envelope) returns (Envelope);
+  // 本体面（O-21 ~ O-24；HTTP /api/v1/graph/ontology/* 语义一一对应）
+  rpc GenerateOntologyCandidates(Envelope) returns (Envelope);
+  rpc ValidateOntology(Envelope) returns (Envelope);
+  rpc IngestOntology(Envelope) returns (Envelope);
+  rpc ExportOntology(Envelope) returns (Envelope);
+  rpc ValidateGraphOntology(Envelope) returns (Envelope);
+  rpc OntologyCoverage(Envelope) returns (Envelope);
+  rpc PutOntologySnapshot(Envelope) returns (Envelope);
+  rpc ListOntologySnapshots(Envelope) returns (Envelope);
+  rpc OntologyVersionDiff(Envelope) returns (Envelope);
 }

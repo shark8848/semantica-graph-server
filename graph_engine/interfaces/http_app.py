@@ -33,7 +33,17 @@ def _handle(trace_id: str, fn) -> JSONResponse:
     try:
         return JSONResponse(ok(trace_id, fn()))
     except GraphEngineError as exc:
-        return JSONResponse(error(trace_id, exc), status_code=400 if exc.code == "200001" else 404 if exc.code == "200404" else 409 if exc.code == "200409" else 500)
+        if exc.code == "200001":
+            status = 400
+        elif exc.code == "200404":
+            status = 404
+        elif exc.code == "200409":
+            status = 409
+        elif exc.code == "260009":  # 本体能力不可用：如实降级，不用 500
+            status = 501
+        else:
+            status = 500
+        return JSONResponse(error(trace_id, exc), status_code=status)
     except Exception as exc:  # pragma: no cover
         return JSONResponse(error(trace_id, exc), status_code=500)
 
@@ -293,6 +303,95 @@ def create_app(service: Any | None = None) -> FastAPI:
     def graph_index_status(request: Request, graph_id: str) -> JSONResponse:
         tid = _trace(request)
         return _handle(tid, lambda: svc.index_status(graph_id))
+
+    # ---------- 本体面（O-21 ~ O-24；semantica.ontology 守卫式封装） ----------
+
+    @app.post("/api/v1/graph/ontology/candidates")
+    def ontology_candidates(request: Request, payload: dict[str, Any]) -> JSONResponse:
+        tid = _trace(request)
+        return _handle(
+            tid,
+            lambda: svc.generate_ontology_candidates(
+                str(payload.get("graphId") or ""),
+                ontology_id=str(payload.get("ontologyId") or ""),
+                sources=payload.get("sources"),
+                max_classes=int(payload.get("maxClasses") or 40),
+            ),
+        )
+
+    @app.post("/api/v1/graph/ontology/validate")
+    def ontology_validate(request: Request, payload: dict[str, Any]) -> JSONResponse:
+        tid = _trace(request)
+        return _handle(tid, lambda: svc.validate_ontology_definition(payload))
+
+    @app.post("/api/v1/graph/ontology/ingest")
+    def ontology_ingest(request: Request, payload: dict[str, Any]) -> JSONResponse:
+        tid = _trace(request)
+        return _handle(
+            tid,
+            lambda: svc.ingest_ontology(
+                str(payload.get("content") or ""), format=str(payload.get("format") or "owl")
+            ),
+        )
+
+    @app.post("/api/v1/graph/ontology/export")
+    def ontology_export(request: Request, payload: dict[str, Any]) -> JSONResponse:
+        tid = _trace(request)
+        return _handle(tid, lambda: svc.export_ontology(payload))
+
+    @app.post("/api/v1/graph/ontology/validate-graph")
+    def ontology_validate_graph(request: Request, payload: dict[str, Any]) -> JSONResponse:
+        tid = _trace(request)
+        return _handle(
+            tid,
+            lambda: svc.validate_graph_ontology(
+                str(payload.get("graphId") or ""),
+                payload=payload,
+                max_issues=int(payload.get("maxIssues") or 200),
+                include_shacl=_flag(payload.get("includeShacl")) is True,
+            ),
+        )
+
+    @app.post("/api/v1/graph/ontology/coverage")
+    def ontology_coverage(request: Request, payload: dict[str, Any]) -> JSONResponse:
+        tid = _trace(request)
+        return _handle(
+            tid,
+            lambda: svc.ontology_coverage(str(payload.get("graphId") or ""), payload=payload),
+        )
+
+    @app.post("/api/v1/graph/ontology/snapshots")
+    def ontology_put_snapshot(request: Request, payload: dict[str, Any]) -> JSONResponse:
+        tid = _trace(request)
+        return _handle(
+            tid,
+            lambda: svc.put_ontology_snapshot(
+                str(payload.get("graphId") or ""),
+                ontology_id=str(payload.get("ontologyId") or ""),
+                ontology_version=int(payload.get("ontologyVersion") or 0),
+                graph_schema=payload.get("graphSchema"),
+            ),
+        )
+
+    @app.get("/api/v1/graph/ontology/snapshots")
+    def ontology_list_snapshots(request: Request, graphId: str = Query(default="")) -> JSONResponse:
+        tid = _trace(request)
+        return _handle(tid, lambda: svc.list_ontology_snapshots(graphId))
+
+    @app.get("/api/v1/graph/ontology/snapshots/diff")
+    def ontology_snapshot_diff(
+        request: Request,
+        graphId: str = Query(default=""),
+        fromVersion: int = Query(default=0),
+        toVersion: int = Query(default=0),
+    ) -> JSONResponse:
+        tid = _trace(request)
+        return _handle(
+            tid,
+            lambda: svc.ontology_version_diff(
+                graphId, from_version=fromVersion, to_version=toVersion
+            ),
+        )
 
     # ---------- jobs ----------
 

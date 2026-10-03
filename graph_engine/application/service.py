@@ -12,6 +12,12 @@ from ikc_sdk.core.api.graph.edges import GraphEdgesResponse
 from ikc_sdk.core.api.graph.nodes import GraphNodesResponse
 from ikc_sdk.core.api.graph.stat import GraphStatResponse
 from ikc_sdk.core.models.task import EngineJobView
+from ikc_sdk.core.models.ontology import (
+    OntologyCandidateResult,
+    OntologyCoverageView,
+    OntologyExportResult,
+    OntologyValidationReport,
+)
 
 from .. import adapters
 from ..adapters import core_writeback
@@ -20,8 +26,12 @@ from ..adapters.retrieval import RetrievalAdapter
 from ..domain.constraints import ExtractionConstraints
 from ..domain.ids import entity_id, graph_id, normalize_name, relation_id
 from ..domain.models import EntityRecord, GraphMeta, RelationRecord
+from ..adapters.ontology import ONTOLOGY_EXPORT_FORMATS
+from ..adapters import ontology as ontology_adapter
+from ..domain import ontology as ontology_domain
 from ..domain.schema import validate_entity_type, validate_graph_schema, validate_relation_type
 from ..errors import InvalidParamsError, NotFoundError
+from ..errors import ONTOLOGY_UNAVAILABLE, GraphEngineError
 from ..persistence import GraphStore
 
 
@@ -239,6 +249,8 @@ class GraphEngineService:
             "entities": [record.to_dict() for record in saved_entities],
             "relations": [record.to_dict() for record in saved_relations],
         }
+        # §9.4 本体感知抽取：端点 / 必填 / 基数越界**只计数不阻断**（D4 / D5）
+        result["schemaCheck"] = ontology_domain.schema_check(schema, saved_entities, saved_relations)
         # 引擎 → core 数据面回写（合并/计数/build_log/废弃/审计在 core 落地）：
         # 未配置 IKC_CORE_BASE_URL 时返回 None，返回体形状与既有行为一致。
         if not profile.is_empty():
@@ -720,3 +732,198 @@ class GraphEngineService:
     def list_jobs(self, *, graph_id_value: str = "", limit: int = 20) -> dict[str, Any]:
         jobs = self.store.list_jobs(graph_id=graph_id_value, limit=limit)
         return {"total": len(jobs), "items": [_job_view(job) for job in jobs]}
+
+    # ---------- 本体面（O-21 ~ O-24：semantica.ontology 守卫式封装，降级 260009） ----------
+
+    def generate_ontology_candidates(
+        self,
+        graph_id_value: str,
+        *,
+        ontology_id: str = "",
+        sources: list[str] | None = None,
+        max_classes: int = 40,
+    ) -> dict[str, Any]:
+        """O-23：从图谱记录聚合本体候选（只产候选，人工收敛后 publish，D6）。"""
+        meta = self._require_graph(graph_id_value)
+        entities = self.store.list_entities(graph_id_value)
+        relations = self.store.list_relations(graph_id_value)
+        candidates = ontology_domain.generate_candidates(
+            entities, relations, max_classes=max_classes
+        )
+        payload = OntologyCandidateResult.model_validate(
+            {
+                "kbId": meta.kb_id,
+                "ontologyId": ontology_id,
+                "sources": [str(item) for item in (sources or ["graph"])],
+                "classes": candidates["classes"],
+                "relations": candidates["relations"],
+                "truncated": candidates["truncated"],
+            }
+        ).model_dump(exclude_unset=True)
+        inferred = ontology_adapter.infer_classes(entities, relations)
+        if inferred:
+            # semantica 类推断只作**增强参考**（extra 键），不覆盖确定性聚合候选
+            payload["semantica"] = {"classes": inferred}
+        return payload
+
+    def validate_ontology_definition(self, payload: dict[str, Any] | None) -> dict[str, Any]:
+        """定义面结构体检（悬空 / 环 / 缺字段）；semantica 校验结果附 extra 键。"""
+        definition = ontology_domain.normalize_definition(payload)
+        issues = ontology_domain.validate_definition(definition)
+        result: dict[str, Any] = {
+            "ontologyId": definition["ontologyId"],
+            "valid": not any(item.get("severity") == "error" for item in issues),
+            "degraded": False,
+            "issueCounts": ontology_domain.issue_counts(issues),
+            "issues": issues,
+            "truncated": False,
+        }
+        semantica_report = ontology_adapter.validate_definition(
+            ontology_domain.derive_graph_schema(definition), name=definition["name"]
+        )
+        if semantica_report is not None:
+            result["semantica"] = semantica_report
+        return result
+
+    def ingest_ontology(self, content: str, *, format: str = "owl") -> dict[str, Any]:
+        """导入 OWL / Turtle：抽概念 / 属性 / 关系为引擎定义视图（semantica 缺失时降级 260009）。"""
+        parsed = ontology_adapter.parse_ontology(str(content or ""), fmt=str(format or "owl"))
+        if parsed is None:
+            raise GraphEngineError(
+                ONTOLOGY_UNAVAILABLE,
+                "本体导入不可用（rdflib 缺失或正文非法）",
+                field="content",
+                reason=str(format or "owl"),
+            )
+        return {"format": str(format or "owl"), **parsed}
+
+    def export_ontology(self, payload: dict[str, Any] | None) -> dict[str, Any]:
+        """O-24：导出 json（编译产物）/ owl / turtle / shacl。"""
+        body = dict(payload or {})
+        definition = ontology_domain.normalize_definition(body)
+        fmt = str(body.get("format") or "json").strip().lower()
+        if fmt not in ONTOLOGY_EXPORT_FORMATS:
+            raise InvalidParamsError(
+                "不支持的导出格式", field="format", reason=f"{fmt}（支持 {'/'.join(ONTOLOGY_EXPORT_FORMATS)}）"
+            )
+        schema = ontology_domain.derive_graph_schema(definition)
+        if fmt == "json":
+            return OntologyExportResult.model_validate(
+                {
+                    "ontologyId": definition["ontologyId"],
+                    "format": "json",
+                    "contentType": "application/json",
+                    "content": json.dumps(schema, ensure_ascii=False),
+                    "graphSchema": schema,
+                }
+            ).model_dump(exclude_unset=True)
+        exported = ontology_adapter.export_ontology(
+            schema, fmt, name=definition["name"]
+        )
+        if exported is None:
+            raise GraphEngineError(
+                ONTOLOGY_UNAVAILABLE,
+                "本体导出不可用（semantica.ontology 缺失或导出失败）",
+                field="format",
+                reason=fmt,
+            )
+        return OntologyExportResult.model_validate(
+            {
+                "ontologyId": definition["ontologyId"],
+                "format": fmt,
+                "contentType": exported["contentType"],
+                "content": exported["content"],
+            }
+        ).model_dump(exclude_unset=True)
+
+    def validate_graph_ontology(
+        self,
+        graph_id_value: str,
+        *,
+        payload: dict[str, Any] | None = None,
+        max_issues: int = 200,
+        include_shacl: bool = False,
+    ) -> dict[str, Any]:
+        """O-22：实例级一致性体检（图谱 vs 定义）；只报告，不落库、不阻断（D4/D5）。"""
+        meta = self._require_graph(graph_id_value)
+        definition = ontology_domain.normalize_definition(payload)
+        entities = self.store.list_entities(graph_id_value)
+        relations = self.store.list_relations(graph_id_value)
+        report = ontology_domain.validate_graph(
+            definition, entities, relations, max_issues=max_issues
+        )
+        report["kbId"] = meta.kb_id
+        report["graphId"] = graph_id_value
+        report["coverage"] = ontology_domain.coverage(definition, entities, relations)
+        if include_shacl:
+            shacl = ontology_adapter.export_ontology(
+                ontology_domain.derive_graph_schema(definition), "shacl", name=definition["name"]
+            )
+            report["shacl"] = {"available": shacl is not None}
+        return OntologyValidationReport.model_validate(report).model_dump(exclude_unset=True)
+
+    def ontology_coverage(
+        self, graph_id_value: str, *, payload: dict[str, Any] | None = None
+    ) -> dict[str, Any]:
+        """O-21 引擎侧落地体检：类型覆盖 + 违规计数（不落库）。"""
+        meta = self._require_graph(graph_id_value)
+        definition = ontology_domain.normalize_definition(payload)
+        entities = self.store.list_entities(graph_id_value)
+        relations = self.store.list_relations(graph_id_value)
+        report = ontology_domain.coverage(definition, entities, relations)
+        return OntologyCoverageView.model_validate(
+            {
+                "kbId": meta.kb_id,
+                "graphId": graph_id_value,
+                "ontologyId": definition["ontologyId"],
+                "ontologyVersion": int(definition["version"] or 0),
+                **report,
+            }
+        ).model_dump(exclude_unset=True)
+
+    def put_ontology_snapshot(
+        self,
+        graph_id_value: str,
+        *,
+        ontology_id: str = "",
+        ontology_version: int = 0,
+        graph_schema: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """缓存编译产物快照（D1：只缓存产物，不存定义）；版本号必填且同图唯一。"""
+        self._require_graph(graph_id_value)
+        version = int(ontology_version or 0)
+        if version <= 0:
+            raise InvalidParamsError("ontologyVersion 必填（正整数）", field="ontologyVersion")
+        schema = validate_graph_schema(graph_schema)
+        return self.store.put_ontology(
+            graph_id_value,
+            ontology_id=str(ontology_id or ""),
+            ontology_version=version,
+            product=schema,
+        )
+
+    def list_ontology_snapshots(self, graph_id_value: str) -> dict[str, Any]:
+        self._require_graph(graph_id_value)
+        items = self.store.list_ontologies(graph_id_value)
+        return {"graphId": graph_id_value, "total": len(items), "items": items}
+
+    def ontology_version_diff(
+        self, graph_id_value: str, *, from_version: int = 0, to_version: int = 0
+    ) -> dict[str, Any]:
+        """版本比较（编译产物 diff；缺任一版本 → 200404）。"""
+        self._require_graph(graph_id_value)
+        source = self.store.get_ontology(graph_id_value, int(from_version or 0))
+        if source is None:
+            raise NotFoundError("起始版本不存在", field="fromVersion", reason=str(from_version))
+        target = self.store.get_ontology(graph_id_value, int(to_version or 0))
+        if target is None:
+            raise NotFoundError("目标版本不存在", field="toVersion", reason=str(to_version))
+        return {
+            "graphId": graph_id_value,
+            "ontologyId": target.get("ontologyId") or source.get("ontologyId") or "",
+            "fromVersion": int(from_version),
+            "toVersion": int(to_version),
+            "diff": ontology_domain.diff_products(
+                dict(source.get("graphSchema") or {}), dict(target.get("graphSchema") or {})
+            ),
+        }

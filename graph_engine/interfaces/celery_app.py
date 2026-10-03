@@ -128,6 +128,38 @@ def export_task(graph_id: str, format: str = "jsonl", job_id: str = "") -> dict[
     return _run_job(job_id, lambda: svc.export(graph_id, format=format))
 
 
+@celery_app.task(name="graph_engine.ontology_candidates")
+def ontology_candidates_task(
+    graph_id: str,
+    ontology_id: str = "",
+    max_classes: int = 40,
+    job_id: str = "",
+) -> dict[str, Any]:
+    """O-23 候选生成为异步作业（大图生成耗时长，复用 G-07 轮询）。"""
+    svc = get_service()
+    return _run_job(
+        job_id,
+        lambda: svc.generate_ontology_candidates(
+            graph_id, ontology_id=ontology_id, max_classes=max_classes
+        ),
+    )
+
+
+@celery_app.task(name="graph_engine.ontology_validate_graph")
+def ontology_validate_graph_task(
+    graph_id: str,
+    payload: dict[str, Any] | None = None,
+    max_issues: int = 200,
+    job_id: str = "",
+) -> dict[str, Any]:
+    """O-22 实例级一致性体检异步作业。"""
+    svc = get_service()
+    return _run_job(
+        job_id,
+        lambda: svc.validate_graph_ontology(graph_id, payload=payload or {}, max_issues=max_issues),
+    )
+
+
 def _flag(value: Any) -> bool:
     """宽松布尔解析（payload 可能是 JSON bool 或字符串）。"""
     if isinstance(value, bool):
@@ -180,6 +212,18 @@ def dispatch_job(
     elif task == "export":
         task_fn = export_task
         task_kwargs = {"format": str(payload.get("format") or "jsonl")}
+    elif task == "ontology_candidates":
+        task_fn = ontology_candidates_task
+        task_kwargs = {
+            "ontology_id": str(payload.get("ontologyId") or ""),
+            "max_classes": int(payload.get("maxClasses") or 40),
+        }
+    elif task == "ontology_validate_graph":
+        task_fn = ontology_validate_graph_task
+        task_kwargs = {
+            "payload": payload,
+            "max_issues": int(payload.get("maxIssues") or 200),
+        }
     else:
         logger.warning("未知 Celery job task：%s（job_id=%s），跳过投递", task, job_id)
         return False

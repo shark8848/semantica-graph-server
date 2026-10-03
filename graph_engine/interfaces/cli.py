@@ -290,6 +290,57 @@ def analytics(graph_id: str = typer.Argument(...)) -> None:
         _exit_for(exc)
 
 
+# ---------- 本体 ----------
+
+@app.command("ontology-candidates")
+def ontology_candidates(
+    graph_id: str = typer.Argument(...),
+    ontology_id: str = typer.Option("", "--ontology-id"),
+    max_classes: int = typer.Option(40, "--max-classes"),
+) -> None:
+    """O-23 从图谱记录聚合本体候选。"""
+    try:
+        _emit(_svc().generate_ontology_candidates(graph_id, ontology_id=ontology_id, max_classes=max_classes))
+    except Exception as exc:
+        _exit_for(exc)
+
+
+@app.command("ontology-validate")
+def ontology_validate(definition_json: str = typer.Option(..., "--definition", help='{"concepts":[...],"properties":[...],"relations":[...]} JSON')) -> None:
+    """本体定义体检（结构 / 悬空 / 环）。"""
+    try:
+        _emit(_svc().validate_ontology_definition(json.loads(definition_json)))
+    except Exception as exc:
+        _exit_for(exc)
+
+
+@app.command("ontology-export")
+def ontology_export(
+    definition_json: str = typer.Option(..., "--definition", help='定义 / 编译产物 JSON'),
+    format: str = typer.Option("json", "--format", help="json|owl|turtle|shacl"),
+) -> None:
+    """导出本体（json / owl / turtle / shacl）。"""
+    try:
+        payload = json.loads(definition_json)
+        payload["format"] = format
+        _emit(_svc().export_ontology(payload))
+    except Exception as exc:
+        _exit_for(exc)
+
+
+@app.command("ontology-validate-graph")
+def ontology_validate_graph(
+    graph_id: str = typer.Argument(...),
+    definition_json: str = typer.Option("{}", "--definition", help='定义 JSON（缺省用图内 graphSchema）'),
+    max_issues: int = typer.Option(200, "--max-issues"),
+) -> None:
+    """O-22 实例级一致性体检（只报告不阻断）。"""
+    try:
+        _emit(_svc().validate_graph_ontology(graph_id, payload=json.loads(definition_json), max_issues=max_issues))
+    except Exception as exc:
+        _exit_for(exc)
+
+
 # ---------- job ----------
 
 @app.command()

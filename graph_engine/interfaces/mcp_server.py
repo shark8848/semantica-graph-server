@@ -66,6 +66,15 @@ TOOLS: list[dict[str, Any]] = [
     {"name": "graph_search", "description": "语义检索：自然语言查询 → 召回相关实体/关系记录（检索链不可用时降级返回空命中）", "inputSchema": {"type": "object", "properties": {"graphId": {"type": "string"}, "query": {"type": "string"}, "topK": {"type": "integer"}}, "required": ["graphId", "query"]}},
     {"name": "graph_index_status", "description": "语义检索/向量索引可用状态", "inputSchema": {"type": "object", "properties": {"graphId": {"type": "string"}}, "required": ["graphId"]}},
     {"name": "graph_job_run", "description": "同步执行任务", "inputSchema": {"type": "object", "properties": {"jobId": {"type": "string"}}, "required": ["jobId"]}},
+    {"name": "graph_ontology_candidates", "description": "O-23 从图谱记录聚合本体候选（只产候选，人工收敛）", "inputSchema": {"type": "object", "properties": {"graphId": {"type": "string"}, "ontologyId": {"type": "string"}, "sources": {"type": "array"}, "maxClasses": {"type": "integer"}}, "required": ["graphId"]}},
+    {"name": "graph_ontology_validate", "description": "本体定义体检（结构 / 悬空 / 环）", "inputSchema": {"type": "object", "properties": {"ontologyId": {"type": "string"}, "graphSchema": {"type": "object"}, "concepts": {"type": "array"}, "properties": {"type": "array"}, "relations": {"type": "array"}}}},
+    {"name": "graph_ontology_ingest", "description": "导入 OWL / Turtle 定义", "inputSchema": {"type": "object", "properties": {"content": {"type": "string"}, "format": {"type": "string"}}, "required": ["content"]}},
+    {"name": "graph_ontology_export", "description": "导出本体（json / owl / turtle / shacl）", "inputSchema": {"type": "object", "properties": {"ontologyId": {"type": "string"}, "format": {"type": "string"}, "graphSchema": {"type": "object"}, "concepts": {"type": "array"}, "properties": {"type": "array"}, "relations": {"type": "array"}}, "required": ["format"]}},
+    {"name": "graph_ontology_validate_graph", "description": "O-22 实例级一致性体检（图谱 vs 本体；只报告不阻断）", "inputSchema": {"type": "object", "properties": {"graphId": {"type": "string"}, "ontologyId": {"type": "string"}, "graphSchema": {"type": "object"}, "concepts": {"type": "array"}, "properties": {"type": "array"}, "relations": {"type": "array"}, "maxIssues": {"type": "integer"}, "includeShacl": {"type": "boolean"}}, "required": ["graphId"]}},
+    {"name": "graph_ontology_coverage", "description": "O-21 类型覆盖 + 违规计数", "inputSchema": {"type": "object", "properties": {"graphId": {"type": "string"}, "ontologyId": {"type": "string"}, "graphSchema": {"type": "object"}}, "required": ["graphId"]}},
+    {"name": "graph_ontology_snapshot", "description": "缓存编译产物快照（版本）", "inputSchema": {"type": "object", "properties": {"graphId": {"type": "string"}, "ontologyId": {"type": "string"}, "ontologyVersion": {"type": "integer"}, "graphSchema": {"type": "object"}}, "required": ["graphId", "ontologyVersion", "graphSchema"]}},
+    {"name": "graph_ontology_versions", "description": "列出编译产物快照", "inputSchema": {"type": "object", "properties": {"graphId": {"type": "string"}}, "required": ["graphId"]}},
+    {"name": "graph_ontology_diff", "description": "编译产物版本 diff", "inputSchema": {"type": "object", "properties": {"graphId": {"type": "string"}, "fromVersion": {"type": "integer"}, "toVersion": {"type": "integer"}}, "required": ["graphId", "fromVersion", "toVersion"]}},
     {"name": "graph_job_get", "description": "查询任务状态", "inputSchema": {"type": "object", "properties": {"jobId": {"type": "string"}}, "required": ["jobId"]}},
 ]
 
@@ -100,6 +109,26 @@ def _tool_handlers(service: Any) -> dict[str, Callable[..., dict[str, Any]]]:
         "graph_search": lambda p: service.semantic_search(str(p.get("graphId") or ""), query=str(p.get("query") or ""), top_k=int(p.get("topK") or 10)),
         "graph_index_status": lambda p: service.index_status(str(p.get("graphId") or "")),
         "graph_job_run": lambda p: service.run_job(str(p.get("jobId") or "")),
+        "graph_ontology_candidates": lambda p: service.generate_ontology_candidates(
+            str(p.get("graphId") or ""),
+            ontology_id=str(p.get("ontologyId") or ""),
+            sources=p.get("sources"),
+            max_classes=int(p.get("maxClasses") or 40),
+        ),
+        "graph_ontology_validate": lambda p: service.validate_ontology_definition(p),
+        "graph_ontology_ingest": lambda p: service.ingest_ontology(str(p.get("content") or ""), format=str(p.get("format") or "owl")),
+        "graph_ontology_export": lambda p: service.export_ontology(p),
+        "graph_ontology_validate_graph": lambda p: service.validate_graph_ontology(
+            str(p.get("graphId") or ""), payload=p, max_issues=int(p.get("maxIssues") or 200), include_shacl=_flag(p.get("includeShacl")) is True
+        ),
+        "graph_ontology_coverage": lambda p: service.ontology_coverage(str(p.get("graphId") or ""), payload=p),
+        "graph_ontology_snapshot": lambda p: service.put_ontology_snapshot(
+            str(p.get("graphId") or ""), ontology_id=str(p.get("ontologyId") or ""), ontology_version=int(p.get("ontologyVersion") or 0), graph_schema=p.get("graphSchema")
+        ),
+        "graph_ontology_versions": lambda p: service.list_ontology_snapshots(str(p.get("graphId") or "")),
+        "graph_ontology_diff": lambda p: service.ontology_version_diff(
+            str(p.get("graphId") or ""), from_version=int(p.get("fromVersion") or 0), to_version=int(p.get("toVersion") or 0)
+        ),
         "graph_job_get": lambda p: service.get_job(str(p.get("jobId") or "")),
     }
 

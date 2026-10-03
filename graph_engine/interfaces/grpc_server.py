@@ -209,6 +209,70 @@ def _get_job(service, p: dict[str, Any]) -> dict[str, Any]:
     return service.get_job(str(p.get("jobId") or ""))
 
 
+@_register("GenerateOntologyCandidates")
+def _ontology_candidates(service, p: dict[str, Any]) -> dict[str, Any]:
+    return service.generate_ontology_candidates(
+        str(p.get("graphId") or ""),
+        ontology_id=str(p.get("ontologyId") or ""),
+        sources=p.get("sources"),
+        max_classes=int(p.get("maxClasses") or 40),
+    )
+
+
+@_register("ValidateOntology")
+def _ontology_validate(service, p: dict[str, Any]) -> dict[str, Any]:
+    return service.validate_ontology_definition(p)
+
+
+@_register("IngestOntology")
+def _ontology_ingest(service, p: dict[str, Any]) -> dict[str, Any]:
+    return service.ingest_ontology(str(p.get("content") or ""), format=str(p.get("format") or "owl"))
+
+
+@_register("ExportOntology")
+def _ontology_export(service, p: dict[str, Any]) -> dict[str, Any]:
+    return service.export_ontology(p)
+
+
+@_register("ValidateGraphOntology")
+def _ontology_validate_graph(service, p: dict[str, Any]) -> dict[str, Any]:
+    return service.validate_graph_ontology(
+        str(p.get("graphId") or ""),
+        payload=p,
+        max_issues=int(p.get("maxIssues") or 200),
+        include_shacl=_flag(p.get("includeShacl")) is True,
+    )
+
+
+@_register("OntologyCoverage")
+def _ontology_coverage(service, p: dict[str, Any]) -> dict[str, Any]:
+    return service.ontology_coverage(str(p.get("graphId") or ""), payload=p)
+
+
+@_register("PutOntologySnapshot")
+def _ontology_put_snapshot(service, p: dict[str, Any]) -> dict[str, Any]:
+    return service.put_ontology_snapshot(
+        str(p.get("graphId") or ""),
+        ontology_id=str(p.get("ontologyId") or ""),
+        ontology_version=int(p.get("ontologyVersion") or 0),
+        graph_schema=p.get("graphSchema"),
+    )
+
+
+@_register("ListOntologySnapshots")
+def _ontology_list_snapshots(service, p: dict[str, Any]) -> dict[str, Any]:
+    return service.list_ontology_snapshots(str(p.get("graphId") or ""))
+
+
+@_register("OntologyVersionDiff")
+def _ontology_version_diff(service, p: dict[str, Any]) -> dict[str, Any]:
+    return service.ontology_version_diff(
+        str(p.get("graphId") or ""),
+        from_version=int(p.get("fromVersion") or 0),
+        to_version=int(p.get("toVersion") or 0),
+    )
+
+
 # ---------- server ----------
 
 

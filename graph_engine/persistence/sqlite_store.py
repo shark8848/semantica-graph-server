@@ -68,6 +68,14 @@ CREATE TABLE IF NOT EXISTS graph_constraints (
   constraints_json TEXT NOT NULL DEFAULT '{}',
   updated_at       TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS graph_ontology (
+  graph_id         TEXT NOT NULL,
+  ontology_id      TEXT NOT NULL DEFAULT '',
+  ontology_version INTEGER NOT NULL,
+  product_json     TEXT NOT NULL DEFAULT '{}',
+  created_at       TEXT NOT NULL,
+  PRIMARY KEY (graph_id, ontology_version)
+);
 CREATE TABLE IF NOT EXISTS jobs (
   job_id       TEXT PRIMARY KEY,
   graph_id     TEXT NOT NULL DEFAULT '',
@@ -157,6 +165,7 @@ class SqliteGraphStore:
             self._conn.execute("DELETE FROM entities WHERE graph_id=?", (graph_id,))
             self._conn.execute("DELETE FROM relations WHERE graph_id=?", (graph_id,))
             self._conn.execute("DELETE FROM graph_constraints WHERE graph_id=?", (graph_id,))
+            self._conn.execute("DELETE FROM graph_ontology WHERE graph_id=?", (graph_id,))
             self._conn.commit()
 
     # ---------- 抽取约束画像（P4：人工修正沉淀，按图持久化） ----------
@@ -186,6 +195,64 @@ class SqliteGraphStore:
             )
             self._conn.commit()
         return payload
+
+    # ---------- 编译产物快照（本体面；D1：只缓存产物，不存定义） ----------
+
+    def put_ontology(
+        self, graph_id: str, *, ontology_id: str, ontology_version: int, product: dict[str, Any]
+    ) -> dict[str, Any]:
+        version = int(ontology_version)
+        payload = dict(product or {})
+        now = _now_iso()
+        with self._lock:
+            self.get_graph_or_raise(graph_id)
+            self._conn.execute(
+                "INSERT INTO graph_ontology(graph_id, ontology_id, ontology_version, product_json, created_at)"
+                " VALUES (?,?,?,?,?)"
+                " ON CONFLICT(graph_id, ontology_version) DO UPDATE SET"
+                " ontology_id=excluded.ontology_id, product_json=excluded.product_json, created_at=excluded.created_at",
+                (graph_id, str(ontology_id or ""), version, json.dumps(payload, ensure_ascii=False), now),
+            )
+            self._conn.commit()
+        return {
+            "graphId": graph_id,
+            "ontologyId": str(ontology_id or ""),
+            "ontologyVersion": version,
+            "graphSchema": payload,
+            "createdAt": now,
+        }
+
+    def get_ontology(self, graph_id: str, ontology_version: int) -> dict[str, Any] | None:
+        with self._lock:
+            row = self._conn.execute(
+                "SELECT graph_id, ontology_id, ontology_version, product_json, created_at"
+                " FROM graph_ontology WHERE graph_id=? AND ontology_version=?",
+                (graph_id, int(ontology_version)),
+            ).fetchone()
+        return None if row is None else self._row_to_ontology(row)
+
+    def list_ontologies(self, graph_id: str) -> list[dict[str, Any]]:
+        with self._lock:
+            rows = self._conn.execute(
+                "SELECT graph_id, ontology_id, ontology_version, product_json, created_at"
+                " FROM graph_ontology WHERE graph_id=? ORDER BY ontology_version DESC",
+                (graph_id,),
+            ).fetchall()
+        return [self._row_to_ontology(row) for row in rows]
+
+    @staticmethod
+    def _row_to_ontology(row: sqlite3.Row) -> dict[str, Any]:
+        try:
+            product = json.loads(row["product_json"] or "{}")
+        except Exception:  # noqa: BLE001 - 坏 JSON 视作空产物（快照坏不能拖垮读面）
+            product = {}
+        return {
+            "graphId": row["graph_id"],
+            "ontologyId": row["ontology_id"],
+            "ontologyVersion": int(row["ontology_version"]),
+            "graphSchema": dict(product) if isinstance(product, dict) else {},
+            "createdAt": row["created_at"],
+        }
 
     # ---------- entities ----------
 

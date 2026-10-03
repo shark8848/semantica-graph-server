@@ -8,6 +8,10 @@ NOT_FOUND = "200404"
 CONFLICT = "200409"
 INTERNAL = "200500"
 
+# 本体（Ontology）域稳定码（对齐 ikc-sdk-lib 260xxx；引擎不可用时如实降级）
+ONTOLOGY_VALIDATION_FAILED = "260008"
+ONTOLOGY_UNAVAILABLE = "260009"
+
 
 class GraphEngineError(Exception):
     """引擎领域异常：携带 open-ikc 兼容的错误码（2xxxxx 风格）。"""
