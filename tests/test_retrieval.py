@@ -73,12 +73,17 @@ class _FakeBackend:
 
 
 def test_semantic_search_degraded_when_chain_unavailable(svc, monkeypatch):
-    """检索链不可用时 degrade 不抛错：semantica:false + hits:[]。"""
+    """显式关掉后端（`retrieval_backend="none"`）+ 检索链不可用 → degrade 不抛错。
+
+    2026-10-06 起缺省是**内置词法后端**（`builtin-lexical`），要验降级语义必须显式关掉它，
+    否则 `/search` 会真的召回（见 `tests/test_retrieval_builtin.py`）。
+    """
     from graph_engine.adapters import retrieval as retrieval_module
 
     monkeypatch.setattr(retrieval_module, "retrieval_available", lambda: False)
-    gid = _create(svc)
-    result = svc.semantic_search(gid, query="Alice 相关的记录", top_k=5)
+    degraded = GraphEngineService(svc.store, retrieval_backend="none")
+    gid = _create(degraded)
+    result = degraded.semantic_search(gid, query="Alice 相关的记录", top_k=5)
     assert result["graphId"] == gid
     assert result["query"] == "Alice 相关的记录"
     assert result["topK"] == 5
@@ -87,9 +92,10 @@ def test_semantic_search_degraded_when_chain_unavailable(svc, monkeypatch):
     assert result["hits"] == []
     assert result["reason"]
 
-    status = svc.index_status(gid)
+    status = degraded.index_status(gid)
     assert status["graphId"] == gid
     assert status["semantica"] is False
+    assert status["available"] is False
     assert status["reason"]
 
 
@@ -194,7 +200,7 @@ def test_mcp_retrieval_tools_and_degrade(monkeypatch, tmp_path):
 
     monkeypatch.setattr(retrieval_module, "retrieval_available", lambda: False)
     store = SqliteGraphStore(str(tmp_path / "retrieval-mcp.db"))
-    svc = GraphEngineService(store)
+    svc = GraphEngineService(store, retrieval_backend="none")
     gid = _create(svc)
 
     names = {t["name"] for t in TOOLS}

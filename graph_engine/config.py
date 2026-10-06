@@ -81,6 +81,10 @@ class Settings:
     )
     # 图存储后端：缺省 neo4j（外部图库 Bolt）；不可用时由持久化工厂告警降级 SQLite
     store_backend: str = field(default_factory=lambda: _env("GRAPH_ENGINE_STORE_BACKEND", "neo4j"))
+    # 检索后端：builtin = 内置词法（零依赖，缺省）；none = 不注入后端（/search 恒为确定降级）
+    retrieval_backend: str = field(
+        default_factory=lambda: _env("GRAPH_ENGINE_RETRIEVAL_BACKEND", "builtin")
+    )
     neo4j_uri: str = field(
         default_factory=lambda: _env("GRAPH_ENGINE_NEO4J_URI", "bolt://localhost:7687")
     )

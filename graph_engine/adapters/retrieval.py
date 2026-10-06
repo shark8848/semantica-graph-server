@@ -1,11 +1,14 @@
-"""semantica 检索适配层：检索链守卫探测 + 可注入检索后端契约。
+"""检索适配层：检索链守卫探测 + 可注入检索后端契约 + 对外的确定降级。
 
-真实语义检索依赖 ``semantica.vector_store / semantica.context / semantica.embeddings``，
-当前被 venv 内 pinecone 改名桩（抛裸 Exception）阻塞。本模块负责：
+后端有两类（同一份 `RetrievalBackend` 契约）：
+- **内置词法后端**（`retrieval_builtin.BuiltinLexicalBackend`，2026-10-06 起为缺省）：
+  不需要 semantica 向量链与外部索引，查询时现算打分 —— 图检索**默认可用**；
+- **向量后端**（真实语义召回）：依赖 ``semantica.vector_store / context / embeddings``，
+  本机被 venv 内 pinecone 改名桩（抛裸 Exception）阻塞；修好依赖后按同一契约注入即可。
+
+本模块另外负责：
 - 守卫式导入探测（捕获 Exception，视为「检索链不可用」而非崩溃）；
-- 检索后端契约（backend 可注入，按 graphId 作命名空间隔离）；真实 semantica
-  VectorStore 后端留待依赖修复后的后续任务接入，本模块不触发真实索引/迁移；
-- 检索链不可用 / 后端未配置 / 执行异常时返回确定的降级结果（semantica:false、hits:[]）。
+- 检索链不可用 / 未注入后端 / 后端执行异常时返回确定的降级结果（semantica:false、hits:[]）。
 """
 
 from __future__ import annotations
@@ -143,12 +146,44 @@ class RetrievalAdapter:
         except Exception as exc:
             logger.warning("语义检索执行失败：%s", exc)
             return _degraded(f"检索执行失败：{exc}")
-        return {"semantica": True, "total": len(hits), "hits": hits}
+        return {
+            "semantica": True,
+            "backend": self._backend_name(),
+            "mode": self._backend_mode(),
+            "total": len(hits),
+            "hits": hits,
+        }
 
     def status(self) -> dict[str, Any]:
         """语义检索/索引可用状态（供运维与调试，与 search 同规则降级）。"""
         if not self.available:
-            return {"semantica": False, "reason": "semantica 检索链不可用"}
+            return {"semantica": False, "available": False, "reason": "semantica 检索链不可用"}
         if self.backend is None:
-            return {"semantica": False, "reason": "检索后端未配置"}
-        return {"semantica": True, "backend": type(self.backend).__name__}
+            return {"semantica": False, "available": False, "reason": "检索后端未配置"}
+        status: dict[str, Any] = {
+            "semantica": True,
+            "available": True,
+            "backend": self._backend_name(),
+            "mode": self._backend_mode(),
+        }
+        reporter = getattr(self.backend, "status", None)
+        if callable(reporter):
+            try:
+                extra = reporter()
+            except Exception as exc:  # 状态上报失败不该让 /index-status 挂掉
+                logger.warning("检索后端状态上报失败：%s", exc)
+                extra = {}
+            if isinstance(extra, dict):
+                status.update(extra)
+        return status
+
+    def _backend_name(self) -> str:
+        """后端名：优先用后端自报（内置后端 `builtin-lexical`），否则用类名。"""
+        name = getattr(self.backend, "name", "")
+        return str(name or type(self.backend).__name__)
+
+    def _backend_mode(self) -> str:
+        """检索模式：`lexical`（词法，内置）/ `vector`（向量）/ `custom`（注入的其它后端）。"""
+        if self._backend_name() == "builtin-lexical":
+            return "lexical"
+        return "vector"

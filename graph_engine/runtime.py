@@ -35,7 +35,9 @@ def get_service(db_path: str | None = None) -> GraphEngineService:
         if _service is None:
             settings = get_settings()
             _service = GraphEngineService(
-                get_store(db_path), semantica_enabled=settings.semantica_enabled
+                get_store(db_path),
+                semantica_enabled=settings.semantica_enabled,
+                retrieval_backend=settings.retrieval_backend,
             )
         return _service
 

@@ -1,6 +1,17 @@
 # Semantica Graph Engine — 原生 MCP/检索能力接入（调研与方案）
 
 > 状态：研究/方案草稿 v1（2026-09-07），**仅只读调研产出，未实施、未改任何代码/依赖**。
+> 落地更新（2026-10-06）：**阶段 2 已用「内置词法后端」落地，检索不再依赖 pinecone/fastembed/faiss**——
+> 新增 `graph_engine/adapters/retrieval_builtin.py`（`BuiltinLexicalBackend`，实现 `RetrievalBackend` 契约：
+> `upsert`/`delete` 空实现、`query` 由注入的 `RecordsProvider` **现读存储**（`store.list_entities/list_relations`）
+> 现算加权分，写后立即生效、无索引维护窗口）；`adapters/retrieval.py` 的 `status()` 增 `available` 与后端自报
+> `backend`/`mode`；`service.py` 增 `retrieval_backend`（env `GRAPH_ENGINE_RETRIEVAL_BACKEND`，缺省 `builtin`，
+> `none` 保留旧降级）。权重：实体 名称精确 8 / 名称包含或归一 5 / 别名 3 / 类型 2 / docId 1 / 证据文本 1；
+> 关系 端点名各 3 / 类型 4 / docId 1 / 证据 1；归一到 [0,1]，同分按稳定 ID 升序（同输入同输出）。
+> 新增 `tests/test_retrieval_builtin.py`（10 用例）并改 `tests/test_retrieval.py` 的降级用例为显式
+> `retrieval_backend="none"`；全量回归 127 passed / 3 skipped。
+> **向量链（pinecone/fastembed/faiss）仍未接线**：阶段 1 的 pinecone 依赖修复完成后，把内置词法后端换成
+> 向量后端即可（`RetrievalBackend` 契约不变，`mode` 由 `lexical` 变 `vector`）。
 > 落地更新（2026-09-07 同日）：**阶段 2-3 的代码与单测骨架已先行落地**——新增 `graph_engine/adapters/retrieval.py`
 > （检索链守卫式探测 `retrieval_available()` + 可注入 backend 契约 + `record_to_doc` 向量条目结构），
 > `service.py` 新增 `semantic_search`/`index_status`，MCP 工具 **15→17**（+`graph_search`/`graph_index_status`，

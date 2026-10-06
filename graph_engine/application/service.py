@@ -23,6 +23,7 @@ from .. import adapters
 from ..adapters import core_writeback
 from ..config import Settings
 from ..adapters.retrieval import RetrievalAdapter
+from ..adapters.retrieval_builtin import BuiltinLexicalBackend
 from ..domain.constraints import ExtractionConstraints
 from ..domain.ids import entity_id, graph_id, normalize_name, relation_id
 from ..domain.models import EntityRecord, GraphMeta, RelationRecord
@@ -111,16 +112,39 @@ class GraphEngineService:
         *,
         semantica_enabled: bool = True,
         retrieval: RetrievalAdapter | None = None,
+        retrieval_backend: str = "builtin",
     ) -> None:
-        """构造服务；retrieval 为语义检索适配器（默认 None，首次检索时惰性构造）。"""
+        """构造服务；retrieval 为语义检索适配器（默认 None，首次检索时惰性构造）。
+
+        `retrieval_backend` 只在惰性构造时生效：`builtin`（缺省）= 内置词法后端
+        （零依赖、现算打分，见 `adapters/retrieval_builtin.py`）；`none` = 退回旧口径
+        （不注入后端，`/search` 恒为确定降级），供只跑结构面 / 压测环境使用。
+        显式传入 `retrieval=` 时以传入者为准（注入向量后端即替换掉内置后端）。
+        """
         self.store = store
         self.semantica_enabled = semantica_enabled
         self._retrieval = retrieval
+        self.retrieval_backend = str(retrieval_backend or "builtin").strip().lower()
 
     def _retrieval_adapter(self) -> RetrievalAdapter:
         if self._retrieval is None:
-            self._retrieval = RetrievalAdapter()
+            self._retrieval = RetrievalAdapter(backend=self._default_retrieval_backend())
         return self._retrieval
+
+    def _default_retrieval_backend(self) -> BuiltinLexicalBackend | None:
+        """缺省检索后端：内置词法（`retrieval_backend="none"` 时返回 None → 确定降级）。"""
+        if self.retrieval_backend == "none":
+            return None
+        return BuiltinLexicalBackend(self._retrieval_records)
+
+    def _retrieval_records(
+        self, graph_id_value: str
+    ) -> tuple[list[EntityRecord], list[RelationRecord]]:
+        """检索用记录源：每次查询现读存储（活跃记录），不做索引缓存 → 写后立即生效。"""
+        return (
+            self.store.list_entities(graph_id_value),
+            self.store.list_relations(graph_id_value),
+        )
 
     # ---------- graph CRUD ----------
 
