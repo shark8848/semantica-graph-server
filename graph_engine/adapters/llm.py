@@ -12,8 +12,10 @@ groq/anthropic/ollama/huggingface_llm）对建图候选做实体级增强（去�
 
 from __future__ import annotations
 
+import json
 import logging
 import os
+from collections.abc import Sequence
 from typing import Any
 
 logger = logging.getLogger("graph_engine.llm")
@@ -39,6 +41,31 @@ def llm_modules_available() -> bool:
 
 def _env_bool(key: str, default: bool = False) -> bool:
     return os.environ.get(key, "").strip().lower() in ("1", "true", "yes") if os.environ.get(key) else default
+
+
+def _extractor(*, provider: str, model: str | None, api_key: str | None, allowed_types: Sequence[str]) -> Any:
+    """构造 semantica ``LLMExtraction``；给了白名单就顺带把「只能用这些类型」写进提示词。
+
+    只重写提示词构造（``_build_entity_prompt``）：不新增 LLM 调用、不改解析口径。
+    白名单外的标签仍有 :func:`enhance_text_entities` 的钳制兜底，故这里失败也不影响正确性。
+    """
+    from semantica.semantic_extract import LLMExtraction
+
+    allowed = [str(item).strip() for item in allowed_types if str(item).strip()]
+    if not allowed:
+        return LLMExtraction(provider=provider, model=model, api_key=api_key)
+
+    class _SchemaGuidedLLMExtraction(LLMExtraction):  # type: ignore[misc, valid-type]
+        """把 graphSchema 的实体类型白名单追加到增强提示词末尾。"""
+
+        def _build_entity_prompt(self, text: str, entities: Any) -> str:
+            base = super()._build_entity_prompt(text, entities)
+            return (
+                f"{base}\n\nEach entity's `label` MUST be exactly one of the following "
+                f"(graphSchema declared entity types): {json.dumps(allowed, ensure_ascii=False)}"
+            )
+
+    return _SchemaGuidedLLMExtraction(provider=provider, model=model, api_key=api_key)
 
 
 def _to_span(candidate: dict[str, Any], text: str) -> tuple[Any | None, int]:
@@ -75,8 +102,12 @@ def enhance_text_entities(
     provider: str = "",
     model: str = "",
     api_key: str = "",
+    allowed_types: Sequence[str] = (),
 ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
     """LLM 增强文本建图候选实体。
+
+    ``allowed_types``（graphSchema 声明实体类型）非空时：提示词限定标签取值，且返回值的
+    ``type`` 一律钳制在声明集合内（白名单外的自由标签回落到候选原类型）。
 
     返回 (增强后候选列表, meta)。未启用/provider 缺失/不可用时的降级 meta 形态：
     ``{"enabled": false, "reason": ...}``；启用成功：
@@ -110,10 +141,11 @@ def enhance_text_entities(
             "located": 0,
         }
 
+    allowed = {str(item).strip() for item in allowed_types if str(item).strip()}
     try:
-        from semantica.semantic_extract import LLMExtraction
-
-        extraction = LLMExtraction(provider=prov, model=model_name, api_key=key)
+        extraction = _extractor(
+            provider=prov, model=model_name, api_key=key, allowed_types=sorted(allowed)
+        )
     except Exception as exc:  # pragma: no cover - 双保险（LLMExtraction 内部已吞错）
         logger.warning("LLMExtraction 初始化失败：%s", exc)
         return list(candidates), {"enabled": False, "reason": f"LLMExtraction 初始化失败：{exc}"}
@@ -143,8 +175,14 @@ def enhance_text_entities(
         base = by_name.pop(str(entity.text or ""), None) or {}
         name = str(entity.text or "").strip() or str(base.get("name") or "")
         label = str(entity.label or "").strip()
-        if not label or (label == "concept" and str(base.get("type") or "") not in ("", "concept")):
-            label = str(base.get("type") or label or "concept")
+        base_type = str(base.get("type") or "")
+        if allowed and label not in allowed:
+            # LLM 的自由标签不在 graphSchema 白名单内：回落候选原类型（引擎按 schema 选定）
+            label = base_type
+        if not label or (label == "concept" and base_type not in ("", "concept")):
+            label = base_type or label or "concept"
+        if allowed and label not in allowed:
+            label = base_type if base_type in allowed else ""
         merged: dict[str, Any] = {**base, "name": name, "type": label}
         if entity.confidence is not None:
             merged["confidence"] = float(entity.confidence)

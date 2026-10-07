@@ -46,6 +46,26 @@ def _schema_relation_type(schema: dict[str, Any]) -> str:
     return relation_type_for(schema)
 
 
+def _clamp_entity_types(
+    entities: list[dict[str, Any]], declared: list[str], default_type: str
+) -> tuple[list[dict[str, Any]], int]:
+    """把候选实体的 ``type`` 收敛到 graphSchema 声明的实体类型集合（声明为空时不拦）。
+
+    LLM 增强可能给出自由标签（person / product…）：不收敛就会一路带到 core 触发
+    ``250003`` 让**整批构建**失败。收敛口径 = 换 ``default_type``（声明集合的首个类型）。
+    返回 (候选列表, 被收敛条数)。
+    """
+    allowed = {str(item).strip() for item in declared if str(item).strip()}
+    if not allowed:
+        return entities, 0
+    clamped = 0
+    for item in entities:
+        if isinstance(item, dict) and str(item.get("type") or "").strip() not in allowed:
+            item["type"] = default_type
+            clamped += 1
+    return entities, clamped
+
+
 def _now_iso() -> str:
     from datetime import datetime, timezone
 
@@ -305,12 +325,16 @@ class GraphEngineService:
         title: str = "",
         llm: bool | None = None,
         constraints: ExtractionConstraints | dict[str, Any] | None = None,
+        schema: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         """文本建图（规则抽取）：文档标题 + markdown 结构性术语（标题/粗体/行内代码）与「引号词」
         候选实体 + 同句共现关系。
 
         ``constraints``（P4）：人工修正沉淀的抽取约束——在**派生稳定 ID 之前**对候选实体做
         改名 / 锁类型 / 黑名单，关系按人工确认的端点对定类型；画像合并后按图持久化。
+
+        ``schema``：本次构建使用的 graphSchema（core 随构建载荷下发**当前权威**值）。
+        缺省回落图谱创建时的快照 ``meta.schema``——那份可能早于本体绑定，故显式传入优先。
 
         ``llm`` 开启时对候选实体做 semantica LLMExtraction 增强，并对关系做 semantica
         RelationExtractor 增强（provider/依赖不可用时均确定降级）；缺省读
@@ -319,8 +343,12 @@ class GraphEngineService:
         if llm is None:
             llm = _env_bool("GRAPH_ENGINE_LLM_ENHANCE", False)
         meta = self._require_graph(graph_id_value)
-        schema = dict(meta.schema)
-        entity_types = [e.get("type", "") for e in (schema.get("entityTypes") or []) if isinstance(e, dict)]
+        schema = validate_graph_schema(schema or meta.schema)
+        entity_types = [
+            str(e.get("type", "")).strip()
+            for e in (schema.get("entityTypes") or [])
+            if isinstance(e, dict) and str(e.get("type", "")).strip()
+        ]
         default_type = entity_types[0] if entity_types else "concept"
 
         entities: list[dict[str, Any]] = []
@@ -339,13 +367,19 @@ class GraphEngineService:
 
         llm_meta: dict[str, Any] | None = None
         if llm:
-            entities, llm_meta = adapters.enhance_text_entities(text or "", entities)
+            entities, llm_meta = adapters.enhance_text_entities(
+                text or "", entities, allowed_types=entity_types
+            )
 
         # P4：人工修正沉淀的抽取约束（改名 / 锁类型 / 黑名单 / 样例），在稳定 ID 派生之前收敛。
         profile = self._absorb_constraints(graph_id_value, constraints)
         constraint_stats: dict[str, int] | None = None
         if not profile.is_empty():
             entities, constraint_stats = profile.apply_candidates(entities, default_type=default_type)
+
+        # graphSchema 声明了实体类型时收敛候选（放在约束之后 = 人工锁定的类型已经生效）：
+        # LLM 自由标签 / 约束里的历史值都不得带出声明集合，否则 core 会整批 250003。
+        entities, clamped_types = _clamp_entity_types(entities, entity_types, default_type)
 
         # 关系抽取（规则共现，llm 开启时叠加 semantica 增强）：端点为实体稳定 ID，
         # 类型受 graphSchema + 人工确认样例约束，证据带 docId + 片段
@@ -372,6 +406,8 @@ class GraphEngineService:
             doc_id=doc_id,
             constraints=constraints,
         )
+        if clamped_types:
+            result.setdefault("types", {})["clamped"] = clamped_types
         if llm_meta:
             result["llm"] = llm_meta
         if constraint_stats is not None:
@@ -727,6 +763,7 @@ class GraphEngineService:
                     text=str(payload.get("text") or ""),
                     doc_id=str(payload.get("docId") or ""),
                     title=str(payload.get("title") or ""),
+                    schema=payload.get("graphSchema") or None,
                 )
             elif task == "merge":
                 result = self.merge_records(

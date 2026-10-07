@@ -155,6 +155,35 @@ def test_build_from_text(svc):
     assert "Alice" in names and "Acme" in names
 
 
+def test_build_from_text_clamps_types_to_declared_schema(svc):
+    """graphSchema 声明后：规则候选全部按首个声明类型落地，绝不带出声明集合。
+
+    回归背景：图谱创建时 schema 为空（早于本体绑定）→ 引擎贴 `concept` 兜底 →
+    core 回写面按声明校验直接 250003，整个构建失败。
+    """
+    gid = svc.create_graph(name="按 schema", kb_id="kb_schema_1", schema={
+        "entityTypes": [{"type": "呼叫中心"}, {"type": "号码"}],
+        "relationTypes": [{"type": "has_queue"}],
+    })["graphId"]
+    result = svc.build_from_text(gid, text="介绍「Alice」与「Acme」。", title="文档标题")
+    types = {item["type"] for item in svc.list_nodes(gid, page_size=200)["items"]}
+    assert types == {"呼叫中心"}
+    assert result["entityCount"] >= 3
+
+
+def test_build_from_text_uses_payload_schema_over_graph_snapshot(svc):
+    """构建载荷带的 graphSchema 优先于图谱创建时的快照（本体绑定晚于建图的历史库）。"""
+    gid = svc.create_graph(name="空 schema", kb_id="kb_schema_2", schema={})["graphId"]
+    svc.build_from_text(
+        gid,
+        text="介绍「Alice」。",
+        title="文档标题",
+        schema={"entityTypes": [{"type": "座席"}], "relationTypes": [{"type": "has_skill"}]},
+    )
+    types = {item["type"] for item in svc.list_nodes(gid, page_size=200)["items"]}
+    assert types == {"座席"}
+
+
 def test_analytics_json_serializable(svc):
     """回归：GraphAnalyzer 结果含 frozenset，analytics 必须 JSON 可序列化。"""
     gid = _create(svc, kb_id="kb_analytics")["graphId"]

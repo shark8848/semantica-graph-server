@@ -165,6 +165,7 @@ def create_app(service: Any | None = None) -> FastAPI:
                     title=str(payload.get("title") or ""),
                     llm=_flag(payload.get("llm")),
                     constraints=constraints,
+                    schema=payload.get("graphSchema") or None,
                 )
                 if payload.get("text")
                 else svc.build_from_records(

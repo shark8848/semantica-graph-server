@@ -70,18 +70,23 @@ def build_task(
     llm: bool = False,
     job_id: str = "",
     constraints: dict[str, Any] | None = None,
+    schema: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """建图任务：--text 走规则抽取（可开 LLM 增强）；否则走显式记录。
 
     ``constraints``（P4）为随作业载荷下发的抽取约束画像（人工修正沉淀），worker 侧
     与按图沉淀画像合并后生效。
+
+    ``schema`` 为随作业载荷下发的 graphSchema（core 的**当前权威**值）：抽取按它给实体分类，
+    缺省回落图谱创建时的快照。
     """
     svc = get_service()
     if text:
         return _run_job(
             job_id,
             lambda: svc.build_from_text(
-                graph_id, text=text, doc_id=doc_id, title=title, llm=llm, constraints=constraints
+                graph_id, text=text, doc_id=doc_id, title=title, llm=llm,
+                constraints=constraints, schema=schema,
             ),
         )
     return _run_job(
@@ -191,6 +196,7 @@ def dispatch_job(
                 "title": str(payload.get("title") or ""),
                 "llm": _flag(payload.get("llm")),
                 "constraints": payload.get("constraints") or None,
+                "schema": payload.get("graphSchema") or None,
             }
         else:
             task_kwargs = {

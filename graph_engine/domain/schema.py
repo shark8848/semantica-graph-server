@@ -58,7 +58,12 @@ def validate_entity_type(schema: dict[str, Any], entity_type: str) -> None:
     }
     if declared and entity_type not in declared:
         raise InvalidParamsError(
-            "实体类型未声明", field="type", reason=f"graphSchema 未声明实体类型：{entity_type}"
+            "实体类型未声明",
+            field="type",
+            reason=(
+                f"graphSchema 未声明实体类型：{entity_type}"
+                f"（已声明：{'、'.join(sorted(declared))}）"
+            ),
         )
 
 
@@ -70,5 +75,10 @@ def validate_relation_type(schema: dict[str, Any], relation_type: str) -> None:
     }
     if declared and relation_type not in declared:
         raise InvalidParamsError(
-            "关系类型未声明", field="type", reason=f"graphSchema 未声明关系类型：{relation_type}"
+            "关系类型未声明",
+            field="type",
+            reason=(
+                f"graphSchema 未声明关系类型：{relation_type}"
+                f"（已声明：{'、'.join(sorted(declared))}）"
+            ),
         )
