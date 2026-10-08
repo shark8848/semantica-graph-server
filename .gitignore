@@ -3,6 +3,11 @@ __pycache__/
 *.egg-info/
 build/
 dist/
+# 本仓自建的 SDK wheel（sdk/python/dist/semantica_graph_sdk-*.whl）随仓发布
+# （离线安装 / 版本归档；口径：每个仓自己构建的 .whl 允许推送），sdist 等其余产物不入库
+!sdk/python/dist/
+sdk/python/dist/*
+!sdk/python/dist/*.whl
 .pytest_cache/
 .venv/
 data/
